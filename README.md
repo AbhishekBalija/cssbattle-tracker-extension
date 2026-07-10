@@ -4,6 +4,8 @@ A Chrome extension that automatically archives your [CSSBattle](https://cssbattl
 
 No backend. No database. Just solve targets and let the extension push everything to a repo you control.
 
+> **See it in action:** [AbhishekBalija/My-CSS-Battle](https://github.com/AbhishekBalija/My-CSS-Battle) is the live archive and analytics website powered by this extension.
+
 ---
 
 ## What it does
