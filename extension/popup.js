@@ -1,12 +1,21 @@
 document.addEventListener('DOMContentLoaded', async () => {
+  // Views
+  const viewMain = document.getElementById('view-main');
+  const viewSettings = document.getElementById('view-settings');
+  const btnOpenSettings = document.getElementById('btn-open-settings');
+  const btnSettingsFromMain = document.getElementById('btn-settings-from-main');
+  const btnBack = document.getElementById('btn-back');
+
+  // Main view elements
+  const statusEl = document.getElementById('github-status');
+  const lastSubContainer = document.getElementById('last-sub-container');
+
+  // Settings elements
   const tokenInput = document.getElementById('token-input');
   const saveBtn = document.getElementById('save-config');
   const testBtn = document.getElementById('test-btn');
   const msg = document.getElementById('msg');
-  const statusEl = document.getElementById('github-status');
-  const lastSubContainer = document.getElementById('last-sub-container');
 
-  // Config inputs
   const configInputs = {
     githubOwner: document.getElementById('config-owner'),
     githubRepo: document.getElementById('config-repo'),
@@ -17,7 +26,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     country: document.getElementById('config-country'),
   };
 
-  // Plugin UI elements
   const pluginStatusDot = document.getElementById('plugin-status-dot');
   const pluginStatusText = document.getElementById('plugin-status-text');
   const toggleToolbar = document.getElementById('toggle-toolbar');
@@ -37,18 +45,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  // Load config and token
+  // Navigation
+  btnOpenSettings.addEventListener('click', showSettingsView);
+  btnSettingsFromMain.addEventListener('click', showSettingsView);
+  btnBack.addEventListener('click', showMainView);
+
+  function showMainView() {
+    viewMain.classList.remove('hidden');
+    viewSettings.classList.add('hidden');
+    checkConnection();
+  }
+
+  function showSettingsView() {
+    viewMain.classList.add('hidden');
+    viewSettings.classList.remove('hidden');
+  }
+
+  // Load everything
   const { githubToken } = await chrome.storage.sync.get('githubToken');
   if (githubToken) tokenInput.value = githubToken;
 
   let config = await loadConfig();
   renderConfig(config);
 
-  // Load plugin settings
   let pluginSettings = await loadPluginSettings();
   renderPluginSettings(pluginSettings);
 
-  // Load last submission
   const { lastSubmission } = await chrome.storage.local.get('lastSubmission');
   if (lastSubmission) renderLastSubmission(lastSubmission);
 
@@ -190,16 +212,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const result = await chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' });
       if (!result) {
-        setStatus('red', 'No response from extension background. Try reloading the extension.');
+        setStatus('red', 'No response from background');
         return;
       }
       if (result.success) {
         setStatus('green', `Connected to ${result.repo}`);
       } else {
-        setStatus('red', `Failed: ${result.error}`);
+        setStatus('red', `${result.error}`);
       }
     } catch (err) {
-      setStatus('red', `Error: ${err.message || 'Could not reach background script'}`);
+      setStatus('red', `Error: ${err.message || 'Could not reach background'}`);
     }
   }
 
