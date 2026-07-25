@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Main view elements
   const statusEl = document.getElementById('github-status');
   const lastSubContainer = document.getElementById('last-sub-container');
+  const activityLogEl = document.getElementById('activity-log');
+  const btnClearLog = document.getElementById('btn-clear-log');
 
   // Settings elements
   const tokenInput = document.getElementById('token-input');
@@ -74,6 +76,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const { lastSubmission } = await chrome.storage.local.get('lastSubmission');
   if (lastSubmission) renderLastSubmission(lastSubmission);
 
+  loadActivityLog();
   checkConnection();
 
   // Save settings
@@ -124,6 +127,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       await savePluginSettings(pluginSettings);
       updatePluginStatus(pluginSettings);
     });
+  });
+
+  btnClearLog.addEventListener('click', async () => {
+    await chrome.runtime.sendMessage({ type: 'CLEAR_LOG' });
+    activityLogEl.innerHTML = '<div class="empty" style="padding: 12px 0;">No activity yet</div>';
   });
 
   async function loadConfig() {
@@ -264,9 +272,58 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `${Math.floor(hrs / 24)}d ago`;
   }
 
+  async function loadActivityLog() {
+    try {
+      const log = await chrome.runtime.sendMessage({ type: 'GET_LOG' });
+      renderActivityLog(log || []);
+    } catch {
+      activityLogEl.innerHTML = '<div class="empty" style="padding: 12px 0;">Could not load log</div>';
+    }
+  }
+
+  function renderActivityLog(entries) {
+    if (!entries || entries.length === 0) {
+      activityLogEl.innerHTML = '<div class="empty" style="padding: 12px 0;">No activity yet</div>';
+      return;
+    }
+
+    const icons = { success: '✅', error: '❌', warn: '⚠️', info: 'ℹ️' };
+
+    activityLogEl.innerHTML = entries
+      .slice()
+      .reverse()
+      .map(entry => {
+        const icon = icons[entry.level] || 'ℹ️';
+        const time = getTimeAgo(entry.timestamp);
+        return `<div class="log-entry log-${entry.level}">
+          <span class="log-icon">${icon}</span>
+          <span class="log-msg">${escapeHtml(entry.message)}</span>
+          <span class="log-time">${time}</span>
+        </div>`;
+      })
+      .join('');
+
+    activityLogEl.scrollTop = 0;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   // Listen for live updates
   chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === 'PUBLISH_RESULT') renderLastSubmission(message.data);
-    if (message.type === 'PUBLISH_ERROR') showMsg(message.error, 'error');
+    if (message.type === 'PUBLISH_RESULT') {
+      renderLastSubmission(message.data);
+      loadActivityLog();
+    }
+    if (message.type === 'PUBLISH_ERROR') {
+      showMsg(message.error, 'error');
+      loadActivityLog();
+    }
+    if (message.type === 'LOG_UPDATED') {
+      loadActivityLog();
+    }
   });
 });

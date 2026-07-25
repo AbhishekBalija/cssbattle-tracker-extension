@@ -24,6 +24,18 @@ const DEFAULT_CONFIG = {
   rankApi: 'https://us-central1-cssbattleapp.cloudfunctions.net/getRank',
 };
 
+/** Encode a UTF-8 string to base64 (safe for multi-byte characters like —) */
+function utf8ToBase64(str) {
+  return btoa(String.fromCodePoint(...new TextEncoder().encode(str)));
+}
+
+/** Decode a base64 string back to UTF-8 (reverses utf8ToBase64) */
+function base64ToUtf8(b64) {
+  const binary = atob(b64);
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 async function getConfig() {
   try {
     const result = await chrome.storage.sync.get(CONFIG_STORAGE_KEY);
@@ -72,6 +84,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getConfig().then(sendResponse);
     return true;
   }
+  if (message.type === 'GET_LOG') {
+    chrome.storage.local.get('activityLog').then(({ activityLog = [] }) => {
+      sendResponse(activityLog);
+    });
+    return true;
+  }
+  if (message.type === 'CLEAR_LOG') {
+    chrome.storage.local.set({ activityLog: [] }).then(() => sendResponse({ success: true }));
+    return true;
+  }
 });
 
 async function saveConfig(payload) {
@@ -96,31 +118,80 @@ async function handleSubmission(data, tab) {
 
   if (!data.score || data.score <= 0) return { action: 'ignored', reason: 'Zero score' };
 
+  await addLogEntry('info', `Captured: ${data.targetName} (score: ${data.score}, chars: ${data.charCount})`);
+
   let screenshotBase64 = null;
   try {
     if (tab?.id) {
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png', quality: 90 });
       screenshotBase64 = dataUrl.replace(/^data:image\/png;base64,/, '');
     }
-  } catch (err) { console.warn('[Tracker] Screenshot failed:', err); }
+  } catch (err) {
+    console.warn('[Tracker] Screenshot failed:', err);
+    await addLogEntry('warn', `Screenshot failed: ${err.message}`);
+  }
 
   const filePath = getFilePath(data);
+  await addLogEntry('info', `Target file: ${filePath}`);
+
   const existing = await getFileFromGitHub(token, config, filePath);
+  if (existing) {
+    const parsed = parseExistingFile(existing);
+    const entryCount = Array.isArray(parsed) ? parsed.length : 0;
+    await addLogEntry('info', `Existing file has ${entryCount} entries (SHA: ${existing.sha?.slice(0, 7)})`);
+  } else {
+    await addLogEntry('info', 'File does not exist yet — will create');
+  }
+
   const decision = dedup(data, existing, filePath);
+  await addLogEntry('info', `Decision: ${decision.action} — ${decision.reason}`);
   if (decision.action === 'ignore') return decision;
 
   const fileContent = buildFileContent(data, decision, existing, filePath);
-  const label = decision.action === 'create' ? '✨ Add' : '⬆️ Update';
-  await pushToGitHub(token, config, filePath, fileContent, existing?.sha,
-    `${label} ${data.levelId}: ${data.targetName}`);
 
-  if (screenshotBase64) {
-    const ssExisting = await getFileFromGitHub(token, config, `public/screenshots/${data.levelId}.png`);
-    await pushToGitHub(token, config, `public/screenshots/${data.levelId}.png`, screenshotBase64, ssExisting?.sha,
-      `📸 Screenshot: ${data.targetName}`, true);
+  // Verify we're not about to destroy data
+  try {
+    const newData = JSON.parse(fileContent);
+    const oldData = parseExistingFile(existing);
+    if (Array.isArray(oldData) && Array.isArray(newData) && newData.length < oldData.length) {
+      const errMsg = `SAFETY: New file has ${newData.length} entries but old had ${oldData.length}. Aborting to prevent data loss.`;
+      await addLogEntry('error', errMsg);
+      throw new Error(errMsg);
+    }
+  } catch (err) {
+    if (err.message.startsWith('SAFETY:')) throw err;
+    // JSON parse of newData failed — shouldn't happen but log it
+    await addLogEntry('warn', `Could not verify data safety: ${err.message}`);
   }
 
-  try { await updateProfile(token, config); } catch (e) { console.warn('[Tracker] Profile update failed:', e); }
+  const label = decision.action === 'create' ? '✨ Add' : '⬆️ Update';
+  try {
+    await pushToGitHub(token, config, filePath, fileContent, existing?.sha,
+      `${label} ${data.levelId}: ${data.targetName}`);
+    await addLogEntry('success', `Pushed ${decision.action}: ${data.targetName}`);
+  } catch (err) {
+    await addLogEntry('error', `GitHub push failed: ${err.message}`);
+    throw err;
+  }
+
+  if (screenshotBase64) {
+    try {
+      const ssExisting = await getFileFromGitHub(token, config, `public/screenshots/${data.levelId}.png`);
+      await pushToGitHub(token, config, `public/screenshots/${data.levelId}.png`, screenshotBase64, ssExisting?.sha,
+        `📸 Screenshot: ${data.targetName}`, true);
+      await addLogEntry('success', `Screenshot uploaded for ${data.targetName}`);
+    } catch (err) {
+      await addLogEntry('warn', `Screenshot upload failed: ${err.message}`);
+    }
+  }
+
+  try {
+    await updateProfile(token, config);
+    await addLogEntry('success', 'Profile updated');
+  } catch (e) {
+    console.warn('[Tracker] Profile update failed:', e);
+    await addLogEntry('warn', `Profile update failed: ${e.message}`);
+  }
 
   await chrome.storage.local.set({
     lastSubmission: {
@@ -134,9 +205,12 @@ async function handleSubmission(data, tab) {
 function parseExistingFile(fileData) {
   if (!fileData || !fileData.content) return null;
   try {
-    const decoded = atob(fileData.content.replace(/\n/g, ''));
+    const decoded = base64ToUtf8(fileData.content.replace(/\n/g, ''));
     return JSON.parse(decoded);
-  } catch { return null; }
+  } catch (err) {
+    console.error('[Tracker] Failed to parse existing file:', err);
+    return null;
+  }
 }
 
 function compareSolution(newData, existing, label) {
@@ -186,33 +260,28 @@ function buildSolutionObject(d) {
 
 function buildFileContent(data, decision, existingFile, filePath) {
   const newSolution = buildSolutionObject(data);
-
-  if (decision.action === 'create') {
-    // New file — start with array
-    return JSON.stringify([newSolution], null, 2);
-  }
-
   const existing = parseExistingFile(existingFile);
-  if (!Array.isArray(existing)) {
-    return JSON.stringify([newSolution], null, 2);
+
+  // Defensive: if we have valid existing data, ALWAYS work with it
+  // even if decision is 'create' (which can happen on parse failure fallthrough)
+  if (Array.isArray(existing) && existing.length > 0) {
+    if (decision.action === 'add' || decision.action === 'create') {
+      existing.push(newSolution);
+    } else if (decision.action === 'update' && decision.index >= 0) {
+      existing[decision.index] = newSolution;
+    }
+
+    if (filePath.startsWith('data/daily/')) {
+      existing.sort((a, b) => new Date(a.date) - new Date(b.date));
+    } else {
+      existing.sort((a, b) => (a.battleNumber || 0) - (b.battleNumber || 0));
+    }
+
+    return JSON.stringify(existing, null, 2);
   }
 
-  if (decision.action === 'add') {
-    // Append new solution to array
-    existing.push(newSolution);
-  } else if (decision.action === 'update' && decision.index >= 0) {
-    // Replace existing solution
-    existing[decision.index] = newSolution;
-  }
-
-  // Sort daily by date, battles by battleNumber
-  if (filePath.startsWith('data/daily/')) {
-    existing.sort((a, b) => new Date(a.date) - new Date(b.date));
-  } else {
-    existing.sort((a, b) => (a.battleNumber || 0) - (b.battleNumber || 0));
-  }
-
-  return JSON.stringify(existing, null, 2);
+  // Truly new file — start with array
+  return JSON.stringify([newSolution], null, 2);
 }
 
 function getFilePath(data) {
@@ -248,7 +317,7 @@ async function getFileFromGitHub(token, config, path) {
 }
 
 async function pushToGitHub(token, config, path, content, sha, message, isBinary = false) {
-  const body = { message, content: isBinary ? content : btoa(unescape(encodeURIComponent(content))), branch: config.githubBranch };
+  const body = { message, content: isBinary ? content : utf8ToBase64(content), branch: config.githubBranch };
   if (sha) body.sha = sha;
   const r = await fetch(getRepoUrl(config, path),
     { method: 'PUT', headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -380,5 +449,29 @@ async function testGitHubConnection() {
     return { success: false, error: formatStatusError(r.status, msg, config) };
   } catch (e) {
     return { success: false, error: `Network error: ${e.message}` };
+  }
+}
+
+// ─── Activity Log ──────────────────────────────────────────────────────
+
+const MAX_LOG_ENTRIES = 50;
+
+async function addLogEntry(level, message) {
+  try {
+    const { activityLog = [] } = await chrome.storage.local.get('activityLog');
+    activityLog.push({
+      level,
+      message,
+      timestamp: Date.now(),
+    });
+    // Keep only the last N entries
+    if (activityLog.length > MAX_LOG_ENTRIES) {
+      activityLog.splice(0, activityLog.length - MAX_LOG_ENTRIES);
+    }
+    await chrome.storage.local.set({ activityLog });
+    // Notify popup if open
+    chrome.runtime.sendMessage({ type: 'LOG_UPDATED', entry: activityLog[activityLog.length - 1] }).catch(() => {});
+  } catch (err) {
+    console.error('[Tracker] Failed to write log:', err);
   }
 }

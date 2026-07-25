@@ -204,6 +204,36 @@
       margin-bottom: 4px;
     }
     .settings-header .section-title { margin-bottom: 0; }
+    
+    .activity-log {
+      max-height: 180px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #30363d #0d1117;
+    }
+    .log-entry {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1.4;
+      margin-bottom: 2px;
+    }
+    .log-entry:hover { background: rgba(255,255,255,0.03); }
+    .log-icon {
+      flex-shrink: 0;
+      width: 14px;
+      text-align: center;
+      font-size: 10px;
+    }
+    .log-msg { color: #8b949e; flex: 1; word-break: break-word; }
+    .log-time { color: #484f58; font-size: 10px; flex-shrink: 0; white-space: nowrap; }
+    .log-entry.log-success .log-msg { color: #56d364; }
+    .log-entry.log-error .log-msg { color: #f85149; }
+    .log-entry.log-warn .log-msg { color: #d29922; }
+    .log-entry.log-info .log-msg { color: #8b949e; }
   </style>
 </head>
 <body>
@@ -230,6 +260,18 @@
       <div class="section-title">Last Submission</div>
       <div id="last-sub-container">
         <div class="empty">No submissions captured yet.<br>Submit a CSSBattle solution to get started!</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+        Activity Log
+        <button class="icon-btn" id="btn-clear-log" title="Clear log" style="padding: 2px;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </button>
+      </div>
+      <div id="activity-log" class="activity-log">
+        <div class="empty" style="padding: 12px 0;">No activity yet</div>
       </div>
     </div>
 
