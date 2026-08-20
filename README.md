@@ -82,7 +82,7 @@ Solve any target and submit. The extension will push the solution, screenshot, a
 
 ## Built-in plugins
 
-The extension includes a few community plugins by [Joe Crawford (artlung)](https://github.com/artlung/artlung-cssbattle-plugins), accessible from a toolbar inside the CSSBattle editor:
+The extension includes a few community plugins by [Joe Crawford (artlung)](https://github.com/artlung/artlung-cssbattle-plugins), accessible from a compact toolbox in the CSSBattle target panel. While the toolbox is open it uses the Target Sponsor space; hiding it restores the original sponsor:
 
 | Plugin | Description |
 | ------ | ----------- |
