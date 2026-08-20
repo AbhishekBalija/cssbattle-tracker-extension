@@ -2,7 +2,7 @@
  * CSSBattle Plugin Manager
  *
  * Loads built-in plugins, provides editor read/write helpers for CodeMirror 6,
- * and injects a plugin toolbar into the CSSBattle output panel.
+ * and injects a plugin toolbox into the CSSBattle target sponsor area.
  *
  * Plugins are registered into window.__cssbattlePlugins by the individual
  * plugin files in extension/plugins/.
@@ -15,6 +15,10 @@
 
   const TOOLBAR_ID = 'cssbattle-archive-plugin-toolbar';
   const TOAST_ID = 'cssbattle-archive-plugin-toast';
+  let sponsorState = null;
+  let toolbarMountObserver = null;
+  let sponsorContentObserver = null;
+  let pendingToolbarIds = null;
 
   // ─── Plugin Registry ─────────────────────────────────────────────────
 
@@ -129,8 +133,31 @@
   // ─── UI Injection ────────────────────────────────────────────────────
 
   function removeToolbar() {
+    if (toolbarMountObserver) {
+      toolbarMountObserver.disconnect();
+      toolbarMountObserver = null;
+    }
+    if (sponsorContentObserver) {
+      sponsorContentObserver.disconnect();
+      sponsorContentObserver = null;
+    }
+    pendingToolbarIds = null;
+
     const existing = document.getElementById(TOOLBAR_ID);
     if (existing) existing.remove();
+
+    if (sponsorState) {
+      const { header, headerText, headerDisplay, children } = sponsorState;
+      if (header?.isConnected) {
+        header.textContent = headerText;
+        header.style.display = headerDisplay;
+      }
+      for (const { element, display } of children) {
+        if (element.isConnected) element.style.display = display;
+      }
+      sponsorState = null;
+    }
+
     const existingToast = document.getElementById(TOAST_ID);
     if (existingToast) existingToast.remove();
   }
@@ -174,8 +201,65 @@
     }, 2200);
   }
 
-  function findOutputContainer() {
-    return document.querySelector('.container__item--output .item__content');
+  function findSponsorContainer() {
+    return document.querySelector('.sponsor-containerr');
+  }
+
+  function waitForSponsor(enabledIds) {
+    pendingToolbarIds = [...enabledIds];
+    if (toolbarMountObserver) return;
+
+    toolbarMountObserver = new MutationObserver(() => {
+      if (!findSponsorContainer()) return;
+
+      const ids = pendingToolbarIds;
+      toolbarMountObserver.disconnect();
+      toolbarMountObserver = null;
+      pendingToolbarIds = null;
+
+      if (ids) injectToolbar(ids);
+    });
+    toolbarMountObserver.observe(document.documentElement || document, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  function prepareSponsorMount(sponsorContainer) {
+    const previousElement = sponsorContainer.previousElementSibling;
+    const header = previousElement?.classList.contains('inner-header')
+      ? previousElement
+      : null;
+    const children = [];
+    const hideSponsorChild = element => {
+      if (element.id === TOOLBAR_ID || children.some(item => item.element === element)) return;
+      children.push({ element, display: element.style.display });
+      element.style.display = 'none';
+    };
+
+    for (const element of sponsorContainer.children) {
+      hideSponsorChild(element);
+    }
+
+    sponsorState = {
+      header,
+      headerText: header?.textContent || '',
+      headerDisplay: header?.style.display || '',
+      children
+    };
+
+    if (header) header.style.display = 'none';
+
+    sponsorContentObserver = new MutationObserver(records => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE && node.parentElement === sponsorContainer) {
+            hideSponsorChild(node);
+          }
+        }
+      }
+    });
+    sponsorContentObserver.observe(sponsorContainer, { childList: true });
   }
 
   function injectToolbar(enabledIds = []) {
@@ -186,49 +270,31 @@
     const active = available.filter(p => enabledIds.includes(p.id));
     if (active.length === 0) return;
 
-    const outputContainer = findOutputContainer();
-    const embedded = !!outputContainer;
+    const sponsorContainer = findSponsorContainer();
+    if (!sponsorContainer) {
+      waitForSponsor(enabledIds);
+      return false;
+    }
+
+    prepareSponsorMount(sponsorContainer);
 
     const toolbar = document.createElement('div');
     toolbar.id = TOOLBAR_ID;
-
-    if (embedded) {
-      toolbar.style.cssText = `
-        width: 100%;
-        margin-top: 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        padding: 12px;
-        border-radius: 10px;
-        background: rgba(30, 30, 46, 0.96);
-        border: 1px solid rgba(255,255,255,0.08);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-        backdrop-filter: blur(8px);
-        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-        box-sizing: border-box;
-      `;
-    } else {
-      // Fallback: fixed bottom-right of the viewport if the output panel isn't found.
-      toolbar.style.cssText = `
-        position: fixed;
-        bottom: 16px;
-        right: 16px;
-        z-index: 2147483646;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        padding: 10px;
-        border-radius: 10px;
-        background: rgba(30, 30, 46, 0.96);
-        border: 1px solid rgba(255,255,255,0.08);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-        backdrop-filter: blur(8px);
-        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-        min-width: 160px;
-        max-width: 220px;
-      `;
-    }
+    toolbar.style.cssText = `
+      width: 100%;
+      margin-top: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 10px;
+      background: rgba(24, 29, 35, 0.96);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      backdrop-filter: blur(8px);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      box-sizing: border-box;
+    `;
 
     const header = document.createElement('div');
     header.style.cssText = `
@@ -243,7 +309,7 @@
       padding-bottom: 6px;
       border-bottom: 1px solid rgba(255,255,255,0.08);
     `;
-    header.innerHTML = `<span>CSSBattle Plugins</span>`;
+    header.innerHTML = `<span>Plugins</span>`;
 
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '×';
@@ -264,17 +330,53 @@
     header.appendChild(closeBtn);
     toolbar.appendChild(header);
 
+    const pluginGrid = document.createElement('div');
+    pluginGrid.style.cssText = `
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+    `;
+
     active.forEach(plugin => {
       const btn = document.createElement('button');
-      btn.textContent = plugin.name;
+      const label = document.createElement('span');
+      label.textContent = plugin.name;
+      label.style.cssText = `
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      `;
+
+      const runIcon = document.createElement('span');
+      runIcon.textContent = '▶';
+      runIcon.setAttribute('aria-hidden', 'true');
+      runIcon.style.cssText = `
+        display: grid;
+        place-items: center;
+        flex: 0 0 30px;
+        width: 30px;
+        height: 30px;
+        margin-left: 8px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.1);
+        color: #f5f7fa;
+        font-size: 10px;
+      `;
+
+      btn.appendChild(label);
+      btn.appendChild(runIcon);
       btn.title = plugin.description || '';
       btn.style.cssText = `
-        display: block;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
         width: 100%;
-        padding: 8px 10px;
-        border: none;
-        border-radius: 6px;
-        background: ${plugin.category === 'template' ? '#3b3b5c' : '#21262d'};
+        min-height: 46px;
+        padding: 7px 8px 7px 12px;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 9px;
+        background: ${plugin.category === 'template' ? '#34384a' : '#21262d'};
         color: #e0e0e0;
         font-size: 12px;
         font-weight: 600;
@@ -282,8 +384,8 @@
         cursor: pointer;
         transition: background 0.15s, transform 0.05s;
       `;
-      btn.addEventListener('mouseenter', () => { btn.style.background = plugin.category === 'template' ? '#4e4e78' : '#30363d'; });
-      btn.addEventListener('mouseleave', () => { btn.style.background = plugin.category === 'template' ? '#3b3b5c' : '#21262d'; });
+      btn.addEventListener('mouseenter', () => { btn.style.background = plugin.category === 'template' ? '#41475d' : '#30363d'; });
+      btn.addEventListener('mouseleave', () => { btn.style.background = plugin.category === 'template' ? '#34384a' : '#21262d'; });
       btn.addEventListener('mousedown', () => { btn.style.transform = 'scale(0.98)'; });
       btn.addEventListener('mouseup', () => { btn.style.transform = 'scale(1)'; });
       btn.addEventListener('click', () => {
@@ -294,8 +396,10 @@
           showToast(result.error, 'error');
         }
       });
-      toolbar.appendChild(btn);
+      pluginGrid.appendChild(btn);
     });
+
+    toolbar.appendChild(pluginGrid);
 
     const undoBtn = document.createElement('button');
     undoBtn.textContent = '↶ Undo';
@@ -322,11 +426,8 @@
     });
     toolbar.appendChild(undoBtn);
 
-    if (embedded) {
-      outputContainer.appendChild(toolbar);
-    } else {
-      document.body.appendChild(toolbar);
-    }
+    sponsorContainer.appendChild(toolbar);
+    return true;
   }
 
   function notifyVisibilityChange(visible) {

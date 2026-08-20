@@ -10,3 +10,7 @@
 # Logs
 *.log
 .codebase-memory
+
+# Local config
+CONFIG.md
+docs/PLAN.md
