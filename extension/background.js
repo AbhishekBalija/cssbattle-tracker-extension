@@ -8,6 +8,8 @@
  */
 
 const CONFIG_STORAGE_KEY = 'cssbattleExtensionConfig';
+const DRAFT_STORAGE_KEY = 'pendingSolutionDraft';
+const MAX_APPROACHES = 3;
 
 const DEFAULT_CONFIG = {
   githubOwner: '',
@@ -60,13 +62,30 @@ function validateConfig(config) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SUBMISSION_CAPTURED') {
-    handleSubmission(message.data, sender.tab).then(result => {
-      console.log('[Tracker] Result:', result);
-      chrome.runtime.sendMessage({ type: 'PUBLISH_RESULT', data: result }).catch(() => {});
+    saveSubmissionDraft(message.data).then(result => {
+      console.log('[Tracker] Draft saved:', result);
+      chrome.runtime.sendMessage({ type: 'DRAFT_SAVED', data: result }).catch(() => {});
+      sendResponse(result);
     }).catch(err => {
       console.error('[Tracker] Error:', err);
-      chrome.runtime.sendMessage({ type: 'PUBLISH_ERROR', error: err.message }).catch(() => {});
+      chrome.runtime.sendMessage({ type: 'DRAFT_ERROR', error: err.message }).catch(() => {});
+      sendResponse({ success: false, error: err.message });
     });
+    return true;
+  }
+  if (message.type === 'GET_DRAFT') {
+    getDraft().then(sendResponse);
+    return true;
+  }
+  if (message.type === 'PUSH_DRAFT') {
+    publishDraft(message.payload).then(sendResponse).catch(err => {
+      sendResponse({
+        success: false,
+        code: err.code || 'PUBLISH_FAILED',
+        error: err.message
+      });
+    });
+    return true;
   }
   if (message.type === 'GET_STATUS') {
     getStatus().then(sendResponse);
@@ -106,100 +125,99 @@ async function saveConfig(payload) {
   }
 }
 
-async function handleSubmission(data, tab) {
-  const token = await getGitHubToken();
-  if (!token) throw new Error('GitHub token not configured. Open extension popup to set it.');
-
-  const config = await getConfig();
-  const missing = validateConfig(config);
-  if (missing.length > 0) {
-    throw new Error(`Missing config: ${missing.join(', ')}. Open the extension popup and fill in the settings.`);
-  }
-
+async function saveSubmissionDraft(data) {
   if (!data.score || data.score <= 0) return { action: 'ignored', reason: 'Zero score' };
 
-  await addLogEntry('info', `Captured: ${data.targetName} (score: ${data.score}, chars: ${data.charCount})`);
-
-  let screenshotBase64 = null;
-  try {
-    if (tab?.id) {
-      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png', quality: 90 });
-      screenshotBase64 = dataUrl.replace(/^data:image\/png;base64,/, '');
-    }
-  } catch (err) {
-    console.warn('[Tracker] Screenshot failed:', err);
-    await addLogEntry('warn', `Screenshot failed: ${err.message}`);
-  }
-
-  const filePath = getFilePath(data);
-  await addLogEntry('info', `Target file: ${filePath}`);
-
-  const existing = await getFileFromGitHub(token, config, filePath);
-  if (existing) {
-    const parsed = parseExistingFile(existing);
-    const entryCount = Array.isArray(parsed) ? parsed.length : 0;
-    await addLogEntry('info', `Existing file has ${entryCount} entries (SHA: ${existing.sha?.slice(0, 7)})`);
-  } else {
-    await addLogEntry('info', 'File does not exist yet — will create');
-  }
-
-  const decision = dedup(data, existing, filePath);
-  await addLogEntry('info', `Decision: ${decision.action} — ${decision.reason}`);
-  if (decision.action === 'ignore') return decision;
-
-  const fileContent = buildFileContent(data, decision, existing, filePath);
-
-  // Verify we're not about to destroy data
-  try {
-    const newData = JSON.parse(fileContent);
-    const oldData = parseExistingFile(existing);
-    if (Array.isArray(oldData) && Array.isArray(newData) && newData.length < oldData.length) {
-      const errMsg = `SAFETY: New file has ${newData.length} entries but old had ${oldData.length}. Aborting to prevent data loss.`;
-      await addLogEntry('error', errMsg);
-      throw new Error(errMsg);
-    }
-  } catch (err) {
-    if (err.message.startsWith('SAFETY:')) throw err;
-    // JSON parse of newData failed — shouldn't happen but log it
-    await addLogEntry('warn', `Could not verify data safety: ${err.message}`);
-  }
-
-  const label = decision.action === 'create' ? '✨ Add' : '⬆️ Update';
-  try {
-    await pushToGitHub(token, config, filePath, fileContent, existing?.sha,
-      `${label} ${data.levelId}: ${data.targetName}`);
-    await addLogEntry('success', `Pushed ${decision.action}: ${data.targetName}`);
-  } catch (err) {
-    await addLogEntry('error', `GitHub push failed: ${err.message}`);
-    throw err;
-  }
-
-  if (screenshotBase64) {
-    try {
-      const ssExisting = await getFileFromGitHub(token, config, `public/screenshots/${data.levelId}.png`);
-      await pushToGitHub(token, config, `public/screenshots/${data.levelId}.png`, screenshotBase64, ssExisting?.sha,
-        `📸 Screenshot: ${data.targetName}`, true);
-      await addLogEntry('success', `Screenshot uploaded for ${data.targetName}`);
-    } catch (err) {
-      await addLogEntry('warn', `Screenshot upload failed: ${err.message}`);
-    }
-  }
-
-  try {
-    await updateProfile(token, config);
-    await addLogEntry('success', 'Profile updated');
-  } catch (e) {
-    console.warn('[Tracker] Profile update failed:', e);
-    await addLogEntry('warn', `Profile update failed: ${e.message}`);
-  }
-
+  const draft = { ...data, capturedAt: Date.now() };
+  await chrome.storage.local.set({ [DRAFT_STORAGE_KEY]: draft });
+  await addLogEntry('info', `Draft saved: ${data.targetName} (score: ${data.score}, chars: ${data.charCount})`);
   await chrome.storage.local.set({
     lastSubmission: {
-      levelId: data.levelId, targetName: data.targetName, score: data.score,
-      charCount: data.charCount, action: decision.action, timestamp: Date.now(),
+      levelId: data.levelId,
+      targetName: data.targetName,
+      score: data.score,
+      charCount: data.charCount,
+      action: 'draft',
+      timestamp: draft.capturedAt,
     }
   });
-  return { action: decision.action, levelId: data.levelId, targetName: data.targetName, score: data.score, charCount: data.charCount };
+
+  return { success: true, action: 'draft', draft };
+}
+
+async function getDraft() {
+  const result = await chrome.storage.local.get(DRAFT_STORAGE_KEY);
+  return { draft: result[DRAFT_STORAGE_KEY] || null };
+}
+
+async function publishDraft(payload = {}) {
+  const approachLabel = validateApproachLabel(payload.approachLabel, 'Approach name');
+  const legacyApproachLabel = payload.legacyApproachLabel
+    ? validateApproachLabel(payload.legacyApproachLabel, 'Saved approach name')
+    : '';
+  const { draft } = await getDraft();
+  if (!draft) return { success: false, code: 'NO_DRAFT', error: 'Submit a solution before pushing.' };
+
+  try {
+    const token = await getGitHubToken();
+    if (!token) throw new Error('GitHub token not configured. Open extension popup to set it.');
+
+    const config = await getConfig();
+    const missing = validateConfig(config);
+    if (missing.length > 0) {
+      throw new Error(`Missing config: ${missing.join(', ')}. Open the extension popup and fill in the settings.`);
+    }
+
+    const filePath = getFilePath(draft);
+    const existingFile = await getFileFromGitHub(token, config, filePath);
+    const parsed = parseExistingFile(existingFile);
+    if (parsed !== null && !Array.isArray(parsed)) {
+      throw new Error(`The target file ${filePath} is not an array. Nothing was changed.`);
+    }
+
+    const existingRecords = Array.isArray(parsed) ? parsed : [];
+    const merged = mergeDraftIntoRecords(existingRecords, draft, approachLabel, legacyApproachLabel, filePath);
+    if (merged.records.length < existingRecords.length) {
+      throw new Error('Safety check failed: publishing would remove existing solutions.');
+    }
+
+    const fileContent = JSON.stringify(merged.records, null, 2);
+    const commitPrefix = merged.action === 'create' ? '✨ Add' : '⬆️ Update';
+    await pushToGitHub(token, config, filePath, fileContent, existingFile?.sha,
+      `${commitPrefix} ${draft.levelId}: ${approachLabel}`);
+    await addLogEntry('success', `Pushed ${approachLabel}: ${draft.targetName}`);
+
+    try {
+      await updateProfile(token, config);
+      await addLogEntry('success', 'Profile updated');
+    } catch (err) {
+      console.warn('[Tracker] Profile update failed:', err);
+      await addLogEntry('warn', `Profile update failed: ${err.message}`);
+    }
+
+    const published = {
+      levelId: draft.levelId,
+      targetName: draft.targetName,
+      score: draft.score,
+      charCount: draft.charCount,
+      approachLabel,
+      action: 'published',
+      timestamp: Date.now(),
+    };
+    await chrome.storage.local.remove(DRAFT_STORAGE_KEY);
+    await chrome.storage.local.set({ lastSubmission: published });
+    chrome.runtime.sendMessage({ type: 'PUBLISH_RESULT', data: published }).catch(() => {});
+    return { success: true, action: merged.action, draft: null, published };
+  } catch (err) {
+    const code = err.code || 'PUBLISH_FAILED';
+    await addLogEntry('error', `Push failed: ${err.message}`);
+    return {
+      success: false,
+      code,
+      error: err.message,
+      requiresExistingApproachLabel: code === 'LEGACY_APPROACH_LABEL_REQUIRED',
+    }
+  }
 }
 
 function parseExistingFile(fileData) {
@@ -213,34 +231,142 @@ function parseExistingFile(fileData) {
   }
 }
 
-function compareSolution(newData, existing, label) {
-  const found = existing.find(s => s.id === newData.levelId);
-  if (!found) return { action: 'add', reason: `New ${label} solution`, index: -1 };
-  if (newData.score > found.score) return { action: 'update', reason: `Better score: ${newData.score} > ${found.score}`, index: existing.indexOf(found) };
-  if (newData.score === found.score && newData.charCount < found.characters) return { action: 'update', reason: `Fewer chars: ${newData.charCount} < ${found.characters}`, index: existing.indexOf(found) };
-  return { action: 'ignore', reason: `No improvement: ${newData.score}/${newData.charCount} vs ${found.score}/${found.characters}` };
+function validateApproachLabel(value, fieldName) {
+  const label = typeof value === 'string' ? value.trim() : '';
+  if (!label) {
+    const error = new Error(`${fieldName} is required.`);
+    error.code = 'APPROACH_LABEL_REQUIRED';
+    throw error;
+  }
+  if (label.length > 80) {
+    const error = new Error(`${fieldName} must be 80 characters or fewer.`);
+    error.code = 'APPROACH_LABEL_TOO_LONG';
+    throw error;
+  }
+  return label;
 }
 
-function dedup(newData, existingFile, filePath) {
-  const existing = parseExistingFile(existingFile);
-  if (!existing) return { action: 'create', reason: 'New file' };
+function createApproachId(label, approaches) {
+  const base = label
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 48) || 'approach';
+  const usedIds = new Set(approaches.map(approach => approach.id));
+  if (!usedIds.has(base)) return base;
 
-  // Battles: single file with array of solutions — find by id
-  if (filePath === 'data/battles.json') {
-    if (!Array.isArray(existing)) return { action: 'create', reason: 'Malformed battles file' };
-    return compareSolution(newData, existing, 'battle');
-  }
-
-  // Daily: month file with array of solutions — find by id
-  if (Array.isArray(existing)) {
-    return compareSolution(newData, existing, 'daily');
-  }
-
-  return { action: 'create', reason: 'Unrecognized format' };
+  let suffix = 2;
+  while (usedIds.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
 }
 
-function buildSolutionObject(d) {
+function compareApproaches(candidate, current) {
+  if (candidate.score !== current.score) return candidate.score - current.score;
+  if (candidate.characters !== current.characters) {
+    return current.characters - candidate.characters;
+  }
+  return 0;
+}
+
+function getBestApproach(approaches) {
+  return approaches.reduce((best, approach) => {
+    if (!best || compareApproaches(approach, best) > 0) return approach;
+    return best;
+  }, null);
+}
+
+function buildApproach(d, label, id) {
   return {
+    id,
+    label,
+    score: d.score,
+    match: d.match,
+    characters: d.charCount,
+    timestamp: d.submittedAt,
+    tags: d.validationTags,
+    code: d.code,
+  };
+}
+
+function buildLegacyApproach(solution, label, id) {
+  return {
+    id,
+    label,
+    score: solution.score,
+    match: solution.match,
+    characters: solution.characters,
+    timestamp: solution.timestamp,
+    tags: solution.tags,
+    code: solution.code,
+  };
+}
+
+function mirrorBestApproach(solution, approaches) {
+  const best = getBestApproach(approaches);
+  return {
+    ...solution,
+    score: best.score,
+    match: best.match,
+    characters: best.characters,
+    timestamp: best.timestamp,
+    tags: best.tags,
+    code: best.code,
+    bestApproachId: best.id,
+    approaches,
+  };
+}
+
+function mergeApproach(solution, draft, approachLabel, legacyApproachLabel) {
+  let approaches = Array.isArray(solution.approaches)
+    ? solution.approaches.map(approach => ({ ...approach }))
+    : [];
+
+  if (approaches.length === 0) {
+    const sameSubmission = solution.code === draft.code
+      && solution.score === draft.score
+      && solution.characters === draft.charCount;
+    if (!sameSubmission && !legacyApproachLabel) {
+      const error = new Error('Name the previously saved approach before adding this one.');
+      error.code = 'LEGACY_APPROACH_LABEL_REQUIRED';
+      throw error;
+    }
+
+    const savedLabel = legacyApproachLabel || approachLabel;
+    const savedId = createApproachId(savedLabel, approaches);
+    approaches.push(buildLegacyApproach(solution, savedLabel, savedId));
+  }
+
+  const normalizedLabel = approachLabel.toLocaleLowerCase('en');
+  const existingIndex = approaches.findIndex(
+    approach => approach.label.trim().toLocaleLowerCase('en') === normalizedLabel
+  );
+
+  if (existingIndex >= 0) {
+    const existingId = approaches[existingIndex].id;
+    approaches[existingIndex] = buildApproach(draft, approachLabel, existingId);
+  } else {
+    if (approaches.length >= MAX_APPROACHES) {
+      const error = new Error(`This solution already has ${MAX_APPROACHES} approaches. Rename an existing approach to update it.`);
+      error.code = 'MAX_APPROACHES_REACHED';
+      throw error;
+    }
+    approaches.push(buildApproach(draft, approachLabel, createApproachId(approachLabel, approaches)));
+  }
+
+  const updatedMetadata = {
+    ...solution,
+    name: draft.targetName,
+    colors: draft.targetColors,
+    date: solution.date || draft.submittedAt.split('T')[0],
+    url: draft.pageUrl,
+    targetImage: draft.targetImage || solution.targetImage || null,
+  };
+  return mirrorBestApproach(updatedMetadata, approaches);
+}
+
+function buildSolutionObject(d, approachLabel) {
+  const base = {
     id: d.levelId,
     name: d.targetName,
     type: d.challengeType,
@@ -256,32 +382,33 @@ function buildSolutionObject(d) {
     targetImage: d.targetImage || null,
     code: d.code,
   };
+  const approach = buildApproach(d, approachLabel, createApproachId(approachLabel, []));
+  return mirrorBestApproach(base, [approach]);
 }
 
-function buildFileContent(data, decision, existingFile, filePath) {
-  const newSolution = buildSolutionObject(data);
-  const existing = parseExistingFile(existingFile);
+function mergeDraftIntoRecords(existingRecords, draft, approachLabel, legacyApproachLabel, filePath) {
+  const records = existingRecords.map(solution => ({ ...solution }));
+  const solutionIndex = records.findIndex(solution => solution.id === draft.levelId);
+  const action = solutionIndex >= 0 ? 'update' : 'create';
 
-  // Defensive: if we have valid existing data, ALWAYS work with it
-  // even if decision is 'create' (which can happen on parse failure fallthrough)
-  if (Array.isArray(existing) && existing.length > 0) {
-    if (decision.action === 'add' || decision.action === 'create') {
-      existing.push(newSolution);
-    } else if (decision.action === 'update' && decision.index >= 0) {
-      existing[decision.index] = newSolution;
-    }
-
-    if (filePath.startsWith('data/daily/')) {
-      existing.sort((a, b) => new Date(a.date) - new Date(b.date));
-    } else {
-      existing.sort((a, b) => (a.battleNumber || 0) - (b.battleNumber || 0));
-    }
-
-    return JSON.stringify(existing, null, 2);
+  if (solutionIndex >= 0) {
+    records[solutionIndex] = mergeApproach(
+      records[solutionIndex],
+      draft,
+      approachLabel,
+      legacyApproachLabel
+    );
+  } else {
+    records.push(buildSolutionObject(draft, approachLabel));
   }
 
-  // Truly new file — start with array
-  return JSON.stringify([newSolution], null, 2);
+  if (filePath.startsWith('data/daily/')) {
+    records.sort((a, b) => new Date(a.date) - new Date(b.date));
+  } else {
+    records.sort((a, b) => (a.battleNumber || 0) - (b.battleNumber || 0));
+  }
+
+  return { action, records };
 }
 
 function getFilePath(data) {
@@ -400,9 +527,9 @@ async function getStatus() {
 
 function formatStatusError(status, msg, config) {
   const errors = {
-    401: () => `Token is invalid or expired (${msg}). Generate a new classic PAT with the repo scope.`,
+    401: () => `Token is invalid or expired (${msg}). Generate a fine-grained token for this repository.`,
     404: () => `Repo not found (${msg}). Either ${config.githubOwner}/${config.githubRepo} does not exist or the token cannot access it.`,
-    403: () => `Permission denied (${msg}). Make sure your token has the 'repo' scope and the repo is accessible.`,
+    403: () => `Permission denied (${msg}). Give the token Contents read and write access to this repository.`,
   };
   const fn = errors[status];
   return fn ? fn() : msg;
@@ -436,10 +563,13 @@ async function testGitHubConnection() {
 
     if (r.ok) {
       const d = await r.json();
-      if (!hasRepoScope) {
+      const isFineGrainedToken = token.startsWith('github_pat_');
+      const canPush = d.permissions?.push === true || d.permissions?.admin === true;
+
+      if ((isFineGrainedToken && !canPush) || (!isFineGrainedToken && !hasRepoScope)) {
         return {
           success: false,
-          error: `Token can read ${d.full_name}, but it is missing the 'repo' scope needed to push files. Generate a classic token with the repo scope enabled.`
+          error: `Token can read ${d.full_name}, but it cannot write files. Give a fine-grained token Contents read and write access to this repository.`
         };
       }
       return { success: true, repo: d.full_name, scopes };

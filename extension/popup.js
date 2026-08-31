@@ -244,8 +244,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderLastSubmission(sub) {
-    const badgeClass = sub.action === 'create' ? 'badge-create' : sub.action === 'update' ? 'badge-update' : 'badge-ignore';
-    const badgeText = sub.action === 'create' ? '✨ Created' : sub.action === 'update' ? '⬆️ Updated' : '⏭️ Skipped';
+    const isDraft = sub.action === 'draft';
+    const isPublished = sub.action === 'published';
+    const badgeClass = isDraft
+      ? 'badge-update'
+      : isPublished || sub.action === 'create'
+        ? 'badge-create'
+        : sub.action === 'update'
+          ? 'badge-update'
+          : 'badge-ignore';
+    const badgeText = isDraft
+      ? 'Draft saved'
+      : isPublished
+        ? 'Published'
+        : sub.action === 'create'
+          ? 'Created'
+          : sub.action === 'update'
+            ? 'Updated'
+            : 'Skipped';
     const timeAgo = (sub.timestamp != null && !isNaN(sub.timestamp)) ? getTimeAgo(sub.timestamp) : 'Just now';
     const displayScore = sub.score != null ? sub.score : '--';
     const displayChars = sub.charCount != null ? sub.charCount : '--';
@@ -316,6 +332,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'PUBLISH_RESULT') {
       renderLastSubmission(message.data);
+      loadActivityLog();
+    }
+    if (message.type === 'DRAFT_SAVED') {
+      renderLastSubmission(message.data.draft ? {
+        ...message.data.draft,
+        action: 'draft',
+        timestamp: message.data.draft.capturedAt
+      } : message.data);
       loadActivityLog();
     }
     if (message.type === 'PUBLISH_ERROR') {

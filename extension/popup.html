@@ -240,7 +240,7 @@
   <div class="header">
     <div class="header-title">
       <h1><span>{X}</span> CSSBattle Tracker</h1>
-      <p>Auto-archive to GitHub</p>
+      <p>Draft, review, then push</p>
     </div>
     <button class="icon-btn" id="btn-open-settings" title="Settings">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -259,7 +259,7 @@
     <div class="section">
       <div class="section-title">Last Submission</div>
       <div id="last-sub-container">
-        <div class="empty">No submissions captured yet.<br>Submit a CSSBattle solution to get started!</div>
+        <div class="empty">No submissions captured yet.<br>Submit once to create a local draft.</div>
       </div>
     </div>
 
@@ -329,8 +329,8 @@
 
     <div class="section">
       <div class="section-title">GitHub Token</div>
-      <input type="password" class="token-input" id="token-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
-      <p class="hint">Classic PAT with the <strong>repo</strong> scope, or a fine-grained token with Contents read/write access.</p>
+      <input type="password" class="token-input" id="token-input" placeholder="Fine-grained GitHub token" />
+      <p class="hint">Fine-grained token limited to your data repository, with <strong>Contents: Read and write</strong>.</p>
       <div class="btn-row">
         <button class="btn btn-primary" id="save-config" style="flex: 2;">💾 Save</button>
         <button class="btn btn-secondary" id="test-btn" style="flex: 1.5;">🔗 Test</button>
