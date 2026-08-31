@@ -1,0 +1,40 @@
+name: Extension Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Validate manifest
+        run: node -e "JSON.parse(require('node:fs').readFileSync('extension/manifest.json', 'utf8'))"
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check extension/background.js
+          node --check extension/content.js
+          node --check extension/content-main.js
+          node --check extension/plugin-manager.js
+          node --check extension/popup.js
+          for file in extension/plugins/*.js; do
+            node --check "$file"
+          done
+
+      - name: Test
+        run: node --test tests/background.test.js

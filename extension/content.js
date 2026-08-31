@@ -3,7 +3,7 @@
  * 
  * Runs on cssbattle.dev/play/* pages.
  * Intercepts submission API calls and collects challenge data.
- * Sends collected data to the background service worker for GitHub publishing.
+ * Sends collected data to the background service worker as a local draft.
  * Also bridges plugin UI messages between the popup and the MAIN world.
  */
 
@@ -18,6 +18,7 @@
 
   const PLUGIN_UI_SOURCE = 'cssbattle-archive-ui';
   const PLUGIN_STORAGE_KEY = 'cssbattlePluginSettings';
+  const attachedPushButtons = new WeakSet();
 
   const DEFAULT_PLUGIN_SETTINGS = {
     toolbarVisible: true,
@@ -48,10 +49,21 @@
       // Collect DOM details + package submission data
       const submissionData = collectSubmissionData(levelId, requestBody, responseData);
 
-      // Send to background service worker
+      // Save the result as a draft. GitHub is only updated from the explicit
+      // Push action in the plugin panel.
       chrome.runtime.sendMessage({
         type: 'SUBMISSION_CAPTURED',
         data: submissionData
+      }).then(result => {
+        postPluginMessage('SOLUTION_DRAFT_STATE', {
+          draft: result?.draft || null,
+          error: result?.success === false ? result.error : null
+        });
+      }).catch(err => {
+        postPluginMessage('SOLUTION_DRAFT_STATE', {
+          draft: null,
+          error: err.message
+        });
       });
     }
   });
@@ -74,6 +86,16 @@
       return;
     }
 
+    if (type === 'REQUEST_SOLUTION_DRAFT') {
+      chrome.runtime.sendMessage({ type: 'GET_DRAFT' })
+        .then(result => postPluginMessage('SOLUTION_DRAFT_STATE', result))
+        .catch(err => postPluginMessage('SOLUTION_DRAFT_STATE', {
+          draft: null,
+          error: err.message
+        }));
+      return;
+    }
+
     if (type === 'TOOLBAR_VISIBILITY_CHANGED') {
       getPluginSettings().then(settings => {
         settings.toolbarVisible = !!payload?.visible;
@@ -81,6 +103,88 @@
       }).catch(err => console.error('[CSSBattle Archive] Failed to save toolbar visibility:', err));
     }
   });
+
+  function postPluginMessage(type, payload) {
+    window.postMessage({
+      source: PLUGIN_UI_SOURCE,
+      type,
+      payload
+    }, '*');
+  }
+
+  function setPushControlState(button, disabled, text, isBusy = false) {
+    button.disabled = disabled;
+    button.textContent = text;
+    button.style.cursor = disabled ? 'not-allowed' : 'pointer';
+    button.style.opacity = disabled ? (isBusy ? '0.7' : '0.45') : '1';
+  }
+
+  function setDraftStatus(message, isError = false) {
+    const status = document.getElementById('cssbattle-draft-status');
+    if (!status) return;
+    status.textContent = message;
+    status.style.color = isError ? '#ff7b72' : '#8899aa';
+  }
+
+  function attachDraftPushButton(root = document) {
+    const button = root.querySelector?.('#cssbattle-push-solution')
+      || document.getElementById('cssbattle-push-solution');
+    if (!button || attachedPushButtons.has(button)) return;
+    attachedPushButtons.add(button);
+
+    button.addEventListener('click', async event => {
+      if (!event.isTrusted || button.disabled) return;
+
+      const approachInput = document.getElementById('cssbattle-approach-name');
+      const legacyInput = document.getElementById('cssbattle-legacy-approach-name');
+      const approachLabel = approachInput?.value.trim() || '';
+      if (!approachLabel) {
+        setDraftStatus('Enter an approach name before pushing.', true);
+        approachInput?.focus();
+        return;
+      }
+
+      setPushControlState(button, true, 'Pushing...', true);
+      setDraftStatus('Publishing this solution to GitHub.');
+
+      try {
+        const result = await chrome.runtime.sendMessage({
+          type: 'PUSH_DRAFT',
+          payload: {
+            approachLabel,
+            legacyApproachLabel: legacyInput?.value.trim() || ''
+          }
+        });
+        postPluginMessage('SOLUTION_DRAFT_PUSH_RESULT', result);
+      } catch (err) {
+        postPluginMessage('SOLUTION_DRAFT_PUSH_RESULT', {
+          success: false,
+          error: err.message
+        });
+      }
+    });
+  }
+
+  function watchForDraftControls() {
+    attachDraftPushButton();
+    const root = document.documentElement;
+    if (!root) return;
+
+    const observer = new MutationObserver(records => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) attachDraftPushButton(node);
+        }
+      }
+    });
+    observer.observe(root, { childList: true, subtree: true });
+  }
+
+  if (document.documentElement) {
+    watchForDraftControls();
+  } else {
+    document.addEventListener('DOMContentLoaded', watchForDraftControls, { once: true });
+  }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_PLUGIN_SETTINGS') {
