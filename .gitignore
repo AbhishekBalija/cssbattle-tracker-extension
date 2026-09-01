@@ -11,6 +11,11 @@
 *.log
 .codebase-memory
 
+# Local extension packages and signing keys
+*.crx
+*.pem
+
 # Local config
 CONFIG.md
 docs/PLAN.md
+design-qa.md
