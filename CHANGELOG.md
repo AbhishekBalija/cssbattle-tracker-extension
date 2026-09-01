@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-01
+
+### Fixed
+
+- Kept CSSBattle's React-managed Submit button in place while positioning Publish beside it
+- Recognized CSSBattle's Submit button when its keyboard shortcut has no separating whitespace
+- Matched the second-row action widths and kept Publish clickable with guidance before a draft exists
+- Used CSSBattle's official logo URL in the popup header and added breathing room around packaged extension icons
+
+## [1.3.1] - 2026-09-01
+
+### Fixed
+
+- Moved publishing out of the plugin toolbox and into a confirmation modal beside CSSBattle's Submit button
+- Filed daily targets by the target's date instead of the date the solution was submitted
+- Replaced the extension artwork with packaged sizes of CSSBattle's official logo glyph
+
 ## [1.3.0] - 2026-09-01
 
 ### Added

@@ -156,7 +156,7 @@ async function publishDraft(payload = {}) {
     ? validateApproachLabel(payload.legacyApproachLabel, 'Saved approach name')
     : '';
   const { draft } = await getDraft();
-  if (!draft) return { success: false, code: 'NO_DRAFT', error: 'Submit a solution before pushing.' };
+  if (!draft) return { success: false, code: 'NO_DRAFT', error: 'Submit a solution before publishing.' };
 
   try {
     const token = await getGitHubToken();
@@ -358,7 +358,7 @@ function mergeApproach(solution, draft, approachLabel, legacyApproachLabel) {
     ...solution,
     name: draft.targetName,
     colors: draft.targetColors,
-    date: solution.date || draft.submittedAt.split('T')[0],
+    date: solution.date || getSolutionDate(draft),
     url: draft.pageUrl,
     targetImage: draft.targetImage || solution.targetImage || null,
   };
@@ -366,6 +366,7 @@ function mergeApproach(solution, draft, approachLabel, legacyApproachLabel) {
 }
 
 function buildSolutionObject(d, approachLabel) {
+  const solutionDate = getSolutionDate(d);
   const base = {
     id: d.levelId,
     name: d.targetName,
@@ -375,7 +376,7 @@ function buildSolutionObject(d, approachLabel) {
     match: d.match,
     characters: d.charCount,
     colors: d.targetColors,
-    date: d.submittedAt.split('T')[0],
+    date: solutionDate,
     timestamp: d.submittedAt,
     tags: d.validationTags,
     url: d.pageUrl,
@@ -414,16 +415,31 @@ function mergeDraftIntoRecords(existingRecords, draft, approachLabel, legacyAppr
 function getFilePath(data) {
   if (data.challengeType === 'daily') {
     // Month-wise: data/daily/{year}/{MM}-{monthname}.json
-    const date = new Date(data.submittedAt);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const solutionDate = getSolutionDate(data);
+    const [year, month] = solutionDate.split('-');
     const monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
-    const monthName = monthNames[date.getMonth()];
+    const monthName = monthNames[Number(month) - 1];
     return `data/daily/${year}/${month}-${monthName}.json`;
   } else {
     // All battles in one file: data/battles.json
     return `data/battles.json`;
   }
+}
+
+function getSolutionDate(data) {
+  if (data.challengeType === 'daily') {
+    const match = data.targetName?.match(
+      /Daily Target\s*[—-]\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s*(\d{4})/i
+    );
+    if (match) {
+      const monthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+      const month = String(monthNames.indexOf(match[1].toLowerCase()) + 1).padStart(2, '0');
+      const day = String(Number(match[2])).padStart(2, '0');
+      return `${match[3]}-${month}-${day}`;
+    }
+  }
+
+  return data.submittedAt.split('T')[0];
 }
 
 async function getGitHubToken() {

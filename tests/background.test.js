@@ -125,6 +125,34 @@ test('capturing a submission saves a draft without using the network', async () 
   assert.equal(context.fetchCalls.length, 0);
 });
 
+test('daily targets are filed by target date instead of submission date', () => {
+  const context = createBackgroundContext();
+  context.testDraft = makeDraft({
+    targetName: 'Daily Target — Aug 31, 2026',
+    submittedAt: '2026-09-01T10:00:00.000Z'
+  });
+
+  const solutionDate = vm.runInContext('getSolutionDate(testDraft)', context);
+  const filePath = vm.runInContext('getFilePath(testDraft)', context);
+  const solution = JSON.parse(JSON.stringify(
+    vm.runInContext("buildSolutionObject(testDraft, 'Background only with gradients')", context)
+  ));
+
+  assert.equal(solutionDate, '2026-08-31');
+  assert.equal(filePath, 'data/daily/2026/08-august.json');
+  assert.equal(solution.date, '2026-08-31');
+});
+
+test('daily targets fall back to the captured ISO date when the title has no date', () => {
+  const context = createBackgroundContext();
+  context.testDraft = makeDraft({ targetName: 'Daily Target' });
+
+  assert.equal(
+    vm.runInContext('getSolutionDate(testDraft)', context),
+    '2026-09-01'
+  );
+});
+
 test('connection test accepts a fine-grained token with repository write access', async () => {
   const context = createBackgroundContext({
     syncStore: {

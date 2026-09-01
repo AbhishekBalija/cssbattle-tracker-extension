@@ -2,7 +2,7 @@
 
 A Chrome extension that captures [CSSBattle](https://cssbattle.dev/) solution drafts and publishes named approaches to your own GitHub repository when you choose.
 
-No backend. No database. Submit while experimenting, review the latest draft, then push only when it is ready.
+No backend. No database. Submit while experimenting, review the latest draft, then publish only when it is ready.
 
 > **See it in action:** [AbhishekBalija/My-CSS-Battle](https://github.com/AbhishekBalija/My-CSS-Battle) is the live archive and analytics website powered by this extension.
 
@@ -12,7 +12,7 @@ No backend. No database. Submit while experimenting, review the latest draft, th
 
 - Detects every successful CSSBattle submission
 - Keeps the latest submission as a local draft
-- Publishes only when you click **Push to GitHub**
+- Publishes only when you click **Publish** and confirm the approach name
 - Stores up to three named approaches for a target
 - Keeps the best-scoring approach first on the website
 - Updates your profile stats and history
@@ -66,9 +66,9 @@ Solve any target and submit. The result is saved locally as a draft, so you can 
 
 When you are happy with it:
 
-1. Open the **Plugins** panel in the CSSBattle target area.
-2. Give the draft a clear approach name.
-3. Click **Push to GitHub**.
+1. Click **Publish** beside CSSBattle's **Submit** button.
+2. Give the draft a clear approach name in the modal.
+3. Click **Publish to GitHub**.
 
 Using the same approach name updates that approach. A new name adds another approach, up to three per target. If an older solution has no approach data yet, the extension asks you to name that saved solution once before adding the new one.
 
@@ -100,7 +100,7 @@ The extension includes a few community plugins by [Joe Crawford (artlung)](https
 | Minify | Strip whitespace, comments, and normalize tokens |
 | Unit Replacement | Replace `px` with the shortest `vw`/`vh`/`pc`/`0` equivalent |
 
-Enable or disable plugins and show/hide the toolbar from the extension popup. Plugins only run when you click them. Submissions are stored as drafts, and GitHub is only updated from the panel's **Push to GitHub** action.
+Enable or disable plugins and show/hide the toolbar from the extension popup. Plugins only run when you click them. Submissions are stored as drafts, and GitHub is only updated after you use **Publish** beside CSSBattle's **Submit** button and confirm the modal.
 
 ---
 
@@ -146,3 +146,5 @@ Release changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 Apache-2.0 — see [LICENSE](LICENSE).
 
 The built-in plugins are based on [artlung/artlung-cssbattle-plugins](https://github.com/artlung/artlung-cssbattle-plugins) and retain their original Apache-2.0 attribution.
+
+Extension icons are rasterized from CSSBattle's [official logo glyph](https://cssbattle.dev/images/logo-new-glyph.svg) because Chrome extension manifests require packaged raster icons.

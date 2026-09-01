@@ -19,8 +19,6 @@
   let toolbarMountObserver = null;
   let sponsorContentObserver = null;
   let pendingToolbarIds = null;
-  let draftUi = null;
-  let currentDraftKey = null;
 
   // ─── Plugin Registry ─────────────────────────────────────────────────
 
@@ -147,8 +145,6 @@
 
     const existing = document.getElementById(TOOLBAR_ID);
     if (existing) existing.remove();
-    draftUi = null;
-    currentDraftKey = null;
 
     if (sponsorState) {
       const { header, headerText, headerDisplay, children } = sponsorState;
@@ -207,224 +203,6 @@
 
   function findSponsorContainer() {
     return document.querySelector('.sponsor-containerr');
-  }
-
-  function requestSolutionDraft() {
-    window.postMessage({
-      source: 'cssbattle-archive-ui',
-      type: 'REQUEST_SOLUTION_DRAFT'
-    }, '*');
-  }
-
-  function setDraftStatus(message, type = 'muted') {
-    if (!draftUi) return;
-    draftUi.status.textContent = message;
-    draftUi.status.style.color = type === 'error'
-      ? '#ff7b72'
-      : type === 'success'
-        ? '#7ee787'
-        : '#8899aa';
-  }
-
-  function setPushButtonState(disabled, text, isBusy = false) {
-    if (!draftUi) return;
-    draftUi.pushButton.disabled = disabled;
-    draftUi.pushButton.textContent = text;
-    draftUi.pushButton.style.cursor = disabled ? 'not-allowed' : 'pointer';
-    draftUi.pushButton.style.opacity = disabled ? (isBusy ? '0.7' : '0.45') : '1';
-  }
-
-  function renderSolutionDraft(draft, error = '') {
-    if (!draftUi) return;
-
-    if (!draft) {
-      currentDraftKey = null;
-      draftUi.name.textContent = 'No draft yet';
-      draftUi.stats.textContent = 'Submit a scored solution to create one.';
-      draftUi.approachInput.value = '';
-      draftUi.approachInput.disabled = true;
-      draftUi.legacyInput.value = '';
-      draftUi.legacyRow.style.display = 'none';
-      setPushButtonState(true, 'Push to GitHub');
-      setDraftStatus(error || 'Nothing is pushed automatically.');
-      return;
-    }
-
-    const nextDraftKey = `${draft.levelId}:${draft.capturedAt}`;
-    if (currentDraftKey !== nextDraftKey) {
-      draftUi.approachInput.value = '';
-      draftUi.legacyInput.value = '';
-      draftUi.legacyRow.style.display = 'none';
-    }
-    currentDraftKey = nextDraftKey;
-    draftUi.name.textContent = draft.targetName || `Target ${draft.levelId}`;
-    draftUi.stats.textContent = `${draft.score} score · ${draft.charCount} chars · ready locally`;
-    draftUi.approachInput.disabled = false;
-    setPushButtonState(false, 'Push to GitHub');
-    setDraftStatus(error || 'Name the approach, then push when you are ready.');
-  }
-
-  function createDraftPanel() {
-    const panel = document.createElement('section');
-    panel.setAttribute('aria-label', 'Solution draft');
-    panel.style.cssText = `
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(255,255,255,0.08);
-    `;
-
-    const heading = document.createElement('div');
-    heading.textContent = 'Publish draft';
-    heading.style.cssText = `
-      color: #ffcc00;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-    `;
-
-    const summary = document.createElement('div');
-    summary.style.cssText = `
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 6px 10px;
-      align-items: baseline;
-    `;
-    const name = document.createElement('strong');
-    name.style.cssText = `
-      min-width: 0;
-      overflow: hidden;
-      color: #e6edf3;
-      font-size: 12px;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    `;
-    const stats = document.createElement('span');
-    stats.style.cssText = `
-      grid-column: 1 / -1;
-      color: #8899aa;
-      font-size: 11px;
-    `;
-    summary.append(name, stats);
-
-    const suggestionsId = 'cssbattle-approach-name-suggestions';
-    const approachLabel = document.createElement('label');
-    approachLabel.textContent = 'Approach name';
-    approachLabel.htmlFor = 'cssbattle-approach-name';
-    approachLabel.style.cssText = `
-      color: #aeb8c4;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-      text-transform: uppercase;
-    `;
-
-    const approachInput = document.createElement('input');
-    approachInput.id = 'cssbattle-approach-name';
-    approachInput.type = 'text';
-    approachInput.maxLength = 80;
-    approachInput.setAttribute('list', suggestionsId);
-    approachInput.placeholder = 'e.g. Nested template with gradients';
-    approachInput.autocomplete = 'off';
-    approachInput.style.cssText = `
-      width: 100%;
-      padding: 9px 10px;
-      border: 1px solid rgba(255,255,255,0.14);
-      border-radius: 6px;
-      outline: none;
-      background: #11161c;
-      color: #f0f3f6;
-      font: 11px/1.4 'SFMono-Regular', Consolas, monospace;
-      box-sizing: border-box;
-    `;
-    approachInput.addEventListener('focus', () => {
-      approachInput.style.borderColor = '#ffcc00';
-    });
-    approachInput.addEventListener('blur', () => {
-      approachInput.style.borderColor = 'rgba(255,255,255,0.14)';
-    });
-
-    const suggestions = document.createElement('datalist');
-    suggestions.id = suggestionsId;
-    [
-      'Nested template with gradients',
-      'Multiple elements with margin positioning',
-      'Multiple elements with gradients + margin positioning',
-      'Multiple elements with gradients + clip-path',
-      'Background only with gradients',
-      'Single element with gradient + box-shadow',
-      'Multiple elements with margin positioning + box-shadow'
-    ].forEach(value => {
-      const option = document.createElement('option');
-      option.value = value;
-      suggestions.appendChild(option);
-    });
-
-    const legacyRow = document.createElement('div');
-    legacyRow.style.cssText = 'display: none; flex-direction: column; gap: 6px;';
-    const legacyLabel = document.createElement('label');
-    legacyLabel.textContent = 'Previously saved approach name';
-    legacyLabel.htmlFor = 'cssbattle-legacy-approach-name';
-    legacyLabel.style.cssText = approachLabel.style.cssText;
-    const legacyInput = document.createElement('input');
-    legacyInput.id = 'cssbattle-legacy-approach-name';
-    legacyInput.type = 'text';
-    legacyInput.maxLength = 80;
-    legacyInput.placeholder = 'Name the older solution once';
-    legacyInput.autocomplete = 'off';
-    legacyInput.style.cssText = approachInput.style.cssText;
-    legacyRow.append(legacyLabel, legacyInput);
-
-    const status = document.createElement('p');
-    status.id = 'cssbattle-draft-status';
-    status.setAttribute('role', 'status');
-    status.style.cssText = `
-      min-height: 16px;
-      margin: 0;
-      color: #8899aa;
-      font-size: 10px;
-      line-height: 1.5;
-    `;
-
-    const pushButton = document.createElement('button');
-    pushButton.id = 'cssbattle-push-solution';
-    pushButton.type = 'button';
-    pushButton.textContent = 'Push to GitHub';
-    pushButton.style.cssText = `
-      width: 100%;
-      padding: 9px 12px;
-      border: 1px solid #ffcc00;
-      border-radius: 6px;
-      background: transparent;
-      color: #ffcc00;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-    `;
-    panel.append(
-      heading,
-      summary,
-      approachLabel,
-      approachInput,
-      suggestions,
-      legacyRow,
-      status,
-      pushButton
-    );
-
-    draftUi = {
-      name,
-      stats,
-      approachInput,
-      legacyRow,
-      legacyInput,
-      status,
-      pushButton
-    };
-    renderSolutionDraft(null);
-    return panel;
   }
 
   function waitForSponsor(enabledIds) {
@@ -647,10 +425,8 @@
       showToast(result.success ? 'Undo successful' : result.error, result.success ? 'info' : 'error');
     });
     toolbar.appendChild(undoBtn);
-    toolbar.appendChild(createDraftPanel());
 
     sponsorContainer.appendChild(toolbar);
-    requestSolutionDraft();
     return true;
   }
 
@@ -661,34 +437,6 @@
       payload: { visible }
     }, '*');
   }
-
-  window.addEventListener('message', event => {
-    if (event.data?.source !== 'cssbattle-archive-ui') return;
-    const { type, payload } = event.data;
-
-    if (type === 'SOLUTION_DRAFT_STATE') {
-      renderSolutionDraft(payload?.draft || null, payload?.error || '');
-      if (payload?.draft) showToast('Solution saved as a local draft');
-      return;
-    }
-
-    if (type === 'SOLUTION_DRAFT_PUSH_RESULT') {
-      if (payload?.success) {
-        renderSolutionDraft(null);
-        showToast('Solution published to GitHub');
-        return;
-      }
-
-      if (draftUi) {
-        setPushButtonState(false, 'Push to GitHub');
-        if (payload?.requiresExistingApproachLabel) {
-          draftUi.legacyRow.style.display = 'flex';
-          draftUi.legacyInput.focus();
-        }
-      }
-      setDraftStatus(payload?.error || 'Could not push this draft.', 'error');
-    }
-  });
 
   // ─── Public API ──────────────────────────────────────────────────────
 
