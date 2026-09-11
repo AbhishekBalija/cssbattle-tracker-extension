@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Show the Publish button on battle pages that have no Top Solutions action
+- Keep the Publish button anchored in the action row so it no longer lags while scrolling
+
+### Changed
+
+- Give draft and publish notifications success and error styles
+- Restyle plugin buttons with the site typeface and button colors with a taller panel layout
+
 ## [1.4.0] - 2026-09-02
 
 ### Added
