@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-02
+
+### Added
+
+- Added explicit create and update choices with existing approach details in the Publish draft modal
+- Added safe rename-on-update behavior that preserves stable approach IDs
+- Added warnings and explicit confirmation for worse updates
+
+### Changed
+
+- Reworked legacy solution publishing so users choose whether to replace or preserve the unnamed solution
+- Compacted popup activity and settings while keeping connection actions visible
+- Made publish context reads validate current GitHub data before any write
+
+### Fixed
+
+- Prevented duplicate labels, stale approach updates, malformed JSON overwrites, target mismatches, and silent three-approach overflow
+- Kept partial publish success visible when only the profile refresh fails
+
 ## [1.3.2] - 2026-09-01
 
 ### Fixed

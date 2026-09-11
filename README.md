@@ -67,10 +67,10 @@ Solve any target and submit. The result is saved locally as a draft, so you can 
 When you are happy with it:
 
 1. Click **Publish** beside CSSBattle's **Submit** button.
-2. Give the draft a clear approach name in the modal.
-3. Click **Publish to GitHub**.
+2. Select an existing approach to update it, or select **New approach** and give it a clear name.
+3. Review the saved and draft scores, then confirm the operation shown in the modal.
 
-Using the same approach name updates that approach. A new name adds another approach, up to three per target. If an older solution has no approach data yet, the extension asks you to name that saved solution once before adding the new one.
+Updates keep the same approach ID, and you can rename an approach while updating it. A worse draft is allowed only after an explicit **Update anyway** confirmation. You can keep up to three approaches per target. If an older solution has no approach data yet, the extension first asks whether to update it or preserve it as a separate named approach.
 
 ---
 
