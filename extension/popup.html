@@ -46,7 +46,9 @@
       border: none;
       color: #8899aa;
       cursor: pointer;
-      padding: 6px;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px;
       border-radius: 6px;
       display: flex;
       align-items: center;
@@ -59,8 +61,10 @@
     .view { display: block; }
     .view.hidden { display: none; }
 
+    .hidden { display: none !important; }
+
     .section {
-      padding: 14px 16px;
+      padding: 12px 14px;
       border-bottom: 1px solid rgba(255,255,255,0.06);
     }
     .section-title {
@@ -148,29 +152,31 @@
 
     .last-sub {
       background: #0d1117;
-      border-radius: 10px;
-      padding: 16px;
+      border-radius: 9px;
+      padding: 12px;
       border: 1px solid #21262d;
-      text-align: center;
+      text-align: left;
     }
-    .last-sub .name { font-weight: 700; color: #ffcc00; font-size: 15px; }
-    .last-sub .meta { font-size: 11px; color: #8b949e; margin-top: 6px; }
+    .last-sub .name { font-weight: 700; color: #ffcc00; font-size: 13px; line-height: 1.35; }
+    .last-sub .approach { margin-top: 4px; color: #c9d1d9; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+    .last-sub .meta { font-size: 10px; color: #8b949e; margin-top: 3px; }
     .last-sub .stats {
       display: flex;
-      justify-content: center;
-      gap: 24px;
-      margin-top: 14px;
+      align-items: center;
+      gap: 16px;
+      margin-top: 10px;
     }
-    .stat { display: flex; flex-direction: column; align-items: center; }
-    .stat-value { font-size: 22px; font-weight: 700; color: #58a6ff; }
-    .stat-label { font-size: 9px; text-transform: uppercase; color: #667788; letter-spacing: 0.5px; margin-top: 2px; }
+    .stat { display: flex; align-items: baseline; gap: 4px; }
+    .stat-value { font-size: 16px; font-weight: 700; color: #58a6ff; }
+    .stat-label { font-size: 8px; text-transform: uppercase; color: #667788; letter-spacing: 0.5px; }
     .badge {
       display: inline-block;
       padding: 3px 10px;
       border-radius: 12px;
       font-size: 10px;
       font-weight: 600;
-      margin-top: 12px;
+      margin-top: 0;
+      margin-left: auto;
     }
     .badge-create { background: #238636; color: #fff; }
     .badge-update { background: #1f6feb; color: #fff; }
@@ -202,19 +208,9 @@
     }
     .plugin-toggle { padding-left: 4px; }
 
-    .settings-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 4px;
-    }
-    .settings-header .section-title { margin-bottom: 0; }
-    
     .activity-log {
-      max-height: 180px;
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: #30363d #0d1117;
+      display: grid;
+      gap: 2px;
     }
     .log-entry {
       display: flex;
@@ -229,9 +225,11 @@
     .log-entry:hover { background: rgba(255,255,255,0.03); }
     .log-icon {
       flex-shrink: 0;
-      width: 14px;
-      text-align: center;
-      font-size: 10px;
+      width: 7px;
+      height: 7px;
+      margin-top: 4px;
+      border-radius: 50%;
+      background: #8b949e;
     }
     .log-msg { color: #8b949e; flex: 1; word-break: break-word; }
     .log-time { color: #484f58; font-size: 10px; flex-shrink: 0; white-space: nowrap; }
@@ -239,6 +237,27 @@
     .log-entry.log-error .log-msg { color: #f85149; }
     .log-entry.log-warn .log-msg { color: #d29922; }
     .log-entry.log-info .log-msg { color: #8b949e; }
+    .log-entry.log-success .log-icon { background: #56d364; }
+    .log-entry.log-error .log-icon { background: #f85149; }
+    .log-entry.log-warn .log-icon { background: #d29922; }
+
+    .settings-actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 9;
+      padding: 10px 14px 12px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      background: rgba(26, 26, 46, 0.97);
+      backdrop-filter: blur(10px);
+    }
+
+    .settings-actions .btn-row .btn {
+      margin-top: 0;
+    }
+
+    .settings-actions .msg {
+      margin-top: 8px;
+    }
   </style>
 </head>
 <body>
@@ -247,8 +266,13 @@
       <h1><img class="header-logo" src="https://cssbattle.dev/images/logo-new-glyph.svg" alt=""> CSSBattle Tracker</h1>
       <p>Draft, review, then publish</p>
     </div>
-    <button class="icon-btn" id="btn-open-settings" title="Settings">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+    <button class="icon-btn" id="btn-open-settings" title="Settings" aria-label="Open settings">
+      <span id="header-settings-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      </span>
+      <span id="header-back-icon" class="hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg>
+      </span>
     </button>
   </div>
 
@@ -280,22 +304,10 @@
       </div>
     </div>
 
-    <div class="section" style="border-bottom: none;">
-      <button class="btn btn-secondary" id="btn-settings-from-main">⚙️ Settings</button>
-    </div>
   </div>
 
   <!-- SETTINGS VIEW -->
   <div id="view-settings" class="view hidden">
-    <div class="section">
-      <div class="settings-header">
-        <button class="icon-btn" id="btn-back" title="Back" style="padding: 4px;">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"></path></svg>
-        </button>
-        <div class="section-title" style="margin-bottom: 0;">Settings</div>
-      </div>
-    </div>
-
     <div class="section">
       <div class="section-title">Repository Config</div>
       <div class="input-row">
@@ -336,11 +348,6 @@
       <div class="section-title">GitHub Token</div>
       <input type="password" class="token-input" id="token-input" placeholder="Fine-grained GitHub token" />
       <p class="hint">Fine-grained token limited to your data repository, with <strong>Contents: Read and write</strong>.</p>
-      <div class="btn-row">
-        <button class="btn btn-primary" id="save-config" style="flex: 2;">💾 Save</button>
-        <button class="btn btn-secondary" id="test-btn" style="flex: 1.5;">🔗 Test</button>
-      </div>
-      <div class="msg" id="msg"></div>
     </div>
 
     <div class="section" style="border-bottom: none;">
@@ -374,6 +381,15 @@
       <p class="hint">
         Plugins by <a href="https://github.com/artlung/artlung-cssbattle-plugins" target="_blank" style="color: #58a6ff;">artlung</a>, integrated for non-Plus users.
       </p>
+      <p class="hint">Plugin changes save automatically.</p>
+    </div>
+
+    <div class="settings-actions">
+      <div class="btn-row">
+        <button class="btn btn-primary" id="save-config" style="flex: 2;">Save changes</button>
+        <button class="btn btn-secondary" id="test-btn" style="flex: 1.5;">Test connection</button>
+      </div>
+      <div class="msg" id="msg" role="status" aria-live="polite"></div>
     </div>
   </div>
 

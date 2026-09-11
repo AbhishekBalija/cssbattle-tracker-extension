@@ -3,8 +3,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const viewMain = document.getElementById('view-main');
   const viewSettings = document.getElementById('view-settings');
   const btnOpenSettings = document.getElementById('btn-open-settings');
-  const btnSettingsFromMain = document.getElementById('btn-settings-from-main');
-  const btnBack = document.getElementById('btn-back');
+  const headerSettingsIcon = document.getElementById('header-settings-icon');
+  const headerBackIcon = document.getElementById('header-back-icon');
 
   // Main view elements
   const statusEl = document.getElementById('github-status');
@@ -48,19 +48,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // Navigation
-  btnOpenSettings.addEventListener('click', showSettingsView);
-  btnSettingsFromMain.addEventListener('click', showSettingsView);
-  btnBack.addEventListener('click', showMainView);
+  let settingsOpen = false;
+  btnOpenSettings.addEventListener('click', () => {
+    if (settingsOpen) showMainView();
+    else showSettingsView();
+  });
 
   function showMainView() {
+    settingsOpen = false;
     viewMain.classList.remove('hidden');
     viewSettings.classList.add('hidden');
+    headerSettingsIcon.classList.remove('hidden');
+    headerBackIcon.classList.add('hidden');
+    btnOpenSettings.title = 'Settings';
+    btnOpenSettings.setAttribute('aria-label', 'Open settings');
+    document.scrollingElement.scrollTop = 0;
     checkConnection();
   }
 
   function showSettingsView() {
+    settingsOpen = true;
     viewMain.classList.add('hidden');
     viewSettings.classList.remove('hidden');
+    headerSettingsIcon.classList.add('hidden');
+    headerBackIcon.classList.remove('hidden');
+    btnOpenSettings.title = 'Back to status';
+    btnOpenSettings.setAttribute('aria-label', 'Back to status');
+    document.scrollingElement.scrollTop = 0;
   }
 
   // Load everything
@@ -104,7 +118,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!result.success) return showMsg(`Could not save config: ${result.error}`, 'error');
 
       config = result.config;
-      showMsg('Settings saved!', 'success');
+      showMsg('Settings saved.', 'success');
       checkConnection();
     } catch (err) {
       showMsg(`Could not save settings: ${err.message}`, 'error');
@@ -112,7 +126,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Test connection
-  testBtn.addEventListener('click', checkConnection);
+  testBtn.addEventListener('click', () => checkConnection(true));
 
   // Plugin toggle handlers
   toggleToolbar.addEventListener('change', async () => {
@@ -215,21 +229,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  async function checkConnection() {
+  async function checkConnection(useCurrentInputs = false) {
     setStatus('yellow', 'Testing connection...');
+    const originalText = testBtn.textContent;
+    if (useCurrentInputs) {
+      testBtn.disabled = true;
+      testBtn.textContent = 'Testing...';
+      showMsg('Testing the values currently shown above.', 'success');
+    }
     try {
-      const result = await chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' });
+      const result = await chrome.runtime.sendMessage({
+        type: 'TEST_CONNECTION',
+        payload: useCurrentInputs
+          ? { token: tokenInput.value.trim(), config: readConfigFromInputs() }
+          : undefined
+      });
       if (!result) {
         setStatus('red', 'No response from background');
+        if (useCurrentInputs) showMsg('No response from the extension background.', 'error');
         return;
       }
       if (result.success) {
         setStatus('green', `Connected to ${result.repo}`);
+        if (useCurrentInputs) showMsg(`Connection works for ${result.repo}.`, 'success');
       } else {
         setStatus('red', `${result.error}`);
+        if (useCurrentInputs) showMsg(result.error, 'error');
       }
     } catch (err) {
       setStatus('red', `Error: ${err.message || 'Could not reach background'}`);
+      if (useCurrentInputs) showMsg(err.message || 'Could not test the connection.', 'error');
+    } finally {
+      if (useCurrentInputs) {
+        testBtn.disabled = false;
+        testBtn.textContent = originalText;
+      }
     }
   }
 
@@ -248,19 +282,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     const isPublished = sub.action === 'published';
     const badgeClass = isDraft
       ? 'badge-update'
-      : isPublished || sub.action === 'create'
+        : isPublished || sub.action === 'create'
         ? 'badge-create'
-        : sub.action === 'update'
+        : sub.action === 'update' || sub.action === 'rename'
           ? 'badge-update'
           : 'badge-ignore';
     const badgeText = isDraft
-      ? 'Draft saved'
+      ? 'Local draft'
       : isPublished
         ? 'Published'
         : sub.action === 'create'
           ? 'Created'
           : sub.action === 'update'
             ? 'Updated'
+            : sub.action === 'rename'
+              ? 'Renamed'
             : 'Skipped';
     const timeAgo = (sub.timestamp != null && !isNaN(sub.timestamp)) ? getTimeAgo(sub.timestamp) : 'Just now';
     const displayScore = sub.score != null ? sub.score : '--';
@@ -268,13 +304,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     lastSubContainer.innerHTML = `
       <div class="last-sub">
-        <div class="name">${sub.targetName || sub.levelId}</div>
+        <div class="name">${escapeHtml(sub.targetName || sub.levelId || 'Unknown target')}</div>
+        ${sub.approachLabel ? `<div class="approach">${escapeHtml(sub.approachLabel)}</div>` : ''}
         <div class="meta">${timeAgo}</div>
         <div class="stats">
           <div class="stat"><div class="stat-value">${displayScore}</div><div class="stat-label">Score</div></div>
           <div class="stat"><div class="stat-value">${displayChars}</div><div class="stat-label">Chars</div></div>
+          <span class="badge ${badgeClass}">${badgeText}</span>
         </div>
-        <span class="badge ${badgeClass}">${badgeText}</span>
       </div>`;
   }
 
@@ -298,28 +335,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderActivityLog(entries) {
-    if (!entries || entries.length === 0) {
+    const relevantEntries = (entries || [])
+      .filter(entry => !/^Draft saved:/.test(entry.message) && entry.message !== 'Profile updated')
+      .slice(-5)
+      .reverse();
+    if (relevantEntries.length === 0) {
       activityLogEl.innerHTML = '<div class="empty" style="padding: 12px 0;">No activity yet</div>';
       return;
     }
 
-    const icons = { success: '✅', error: '❌', warn: '⚠️', info: 'ℹ️' };
-
-    activityLogEl.innerHTML = entries
-      .slice()
-      .reverse()
+    activityLogEl.innerHTML = relevantEntries
       .map(entry => {
-        const icon = icons[entry.level] || 'ℹ️';
         const time = getTimeAgo(entry.timestamp);
         return `<div class="log-entry log-${entry.level}">
-          <span class="log-icon">${icon}</span>
+          <span class="log-icon" aria-hidden="true"></span>
           <span class="log-msg">${escapeHtml(entry.message)}</span>
           <span class="log-time">${time}</span>
         </div>`;
       })
       .join('');
-
-    activityLogEl.scrollTop = 0;
   }
 
   function escapeHtml(str) {
@@ -340,7 +374,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         action: 'draft',
         timestamp: message.data.draft.capturedAt
       } : message.data);
-      loadActivityLog();
     }
     if (message.type === 'PUBLISH_ERROR') {
       showMsg(message.error, 'error');

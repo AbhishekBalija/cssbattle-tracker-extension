@@ -77,6 +77,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getDraft().then(sendResponse);
     return true;
   }
+  if (message.type === 'GET_PUBLISH_CONTEXT') {
+    getPublishContext().then(sendResponse).catch(err => {
+      sendResponse({
+        success: false,
+        code: err.code || 'PUBLISH_CONTEXT_FAILED',
+        error: err.message
+      });
+    });
+    return true;
+  }
   if (message.type === 'PUSH_DRAFT') {
     publishDraft(message.payload).then(sendResponse).catch(err => {
       sendResponse({
@@ -92,7 +102,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === 'TEST_CONNECTION') {
-    testGitHubConnection().then(sendResponse);
+    testGitHubConnection(message.payload).then(sendResponse);
     return true;
   }
   if (message.type === 'SAVE_CONFIG') {
@@ -130,7 +140,6 @@ async function saveSubmissionDraft(data) {
 
   const draft = { ...data, capturedAt: Date.now() };
   await chrome.storage.local.set({ [DRAFT_STORAGE_KEY]: draft });
-  await addLogEntry('info', `Draft saved: ${data.targetName} (score: ${data.score}, chars: ${data.charCount})`);
   await chrome.storage.local.set({
     lastSubmission: {
       levelId: data.levelId,
@@ -150,11 +159,68 @@ async function getDraft() {
   return { draft: result[DRAFT_STORAGE_KEY] || null };
 }
 
+async function getPublishContext() {
+  const { draft } = await getDraft();
+  if (!draft) {
+    return {
+      success: false,
+      code: 'NO_DRAFT',
+      error: 'Submit a scored solution before publishing.'
+    };
+  }
+
+  try {
+    const token = await getGitHubToken();
+    if (!token) {
+      throw createPublishError(
+        'GITHUB_TOKEN_REQUIRED',
+        'GitHub token not configured. Open extension settings to add it.'
+      );
+    }
+
+    const config = await getConfig();
+    const missing = validateConfig(config);
+    if (missing.length > 0) {
+      throw createPublishError(
+        'CONFIG_REQUIRED',
+        `Missing config: ${missing.join(', ')}. Open extension settings to complete it.`
+      );
+    }
+
+    const filePath = getFilePath(draft);
+    const existingFile = await getFileFromGitHub(token, config, filePath, { strict: true });
+    const existingRecords = parseSolutionRecords(existingFile, filePath);
+    const solution = existingRecords.find(record => record.id === draft.levelId) || null;
+    const hasApproaches = Array.isArray(solution?.approaches) && solution.approaches.length > 0;
+    const approaches = hasApproaches
+      ? getOrderedApproachSummaries(solution.approaches)
+      : [];
+
+    return {
+      success: true,
+      draft,
+      filePath,
+      solutionExists: !!solution,
+      legacy: !!solution && !hasApproaches,
+      legacySolution: solution && !hasApproaches ? toApproachSummary(solution) : null,
+      bestApproachId: hasApproaches
+        ? (getBestApproach(solution.approaches)?.id || solution.bestApproachId || '')
+        : '',
+      approaches,
+      canCreate: !solution || !hasApproaches || approaches.length < MAX_APPROACHES,
+      maxApproaches: MAX_APPROACHES,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      code: err.code || 'PUBLISH_CONTEXT_FAILED',
+      error: err.message,
+      draft,
+    };
+  }
+}
+
 async function publishDraft(payload = {}) {
-  const approachLabel = validateApproachLabel(payload.approachLabel, 'Approach name');
-  const legacyApproachLabel = payload.legacyApproachLabel
-    ? validateApproachLabel(payload.legacyApproachLabel, 'Saved approach name')
-    : '';
   const { draft } = await getDraft();
   if (!draft) return { success: false, code: 'NO_DRAFT', error: 'Submit a solution before publishing.' };
 
@@ -169,14 +235,9 @@ async function publishDraft(payload = {}) {
     }
 
     const filePath = getFilePath(draft);
-    const existingFile = await getFileFromGitHub(token, config, filePath);
-    const parsed = parseExistingFile(existingFile);
-    if (parsed !== null && !Array.isArray(parsed)) {
-      throw new Error(`The target file ${filePath} is not an array. Nothing was changed.`);
-    }
-
-    const existingRecords = Array.isArray(parsed) ? parsed : [];
-    const merged = mergeDraftIntoRecords(existingRecords, draft, approachLabel, legacyApproachLabel, filePath);
+    const existingFile = await getFileFromGitHub(token, config, filePath, { strict: true });
+    const existingRecords = parseSolutionRecords(existingFile, filePath);
+    const merged = mergeDraftIntoRecords(existingRecords, draft, payload, filePath);
     if (merged.records.length < existingRecords.length) {
       throw new Error('Safety check failed: publishing would remove existing solutions.');
     }
@@ -184,30 +245,42 @@ async function publishDraft(payload = {}) {
     const fileContent = JSON.stringify(merged.records, null, 2);
     const commitPrefix = merged.action === 'create' ? '✨ Add' : '⬆️ Update';
     await pushToGitHub(token, config, filePath, fileContent, existingFile?.sha,
-      `${commitPrefix} ${draft.levelId}: ${approachLabel}`);
-    await addLogEntry('success', `Pushed ${approachLabel}: ${draft.targetName}`);
+      `${commitPrefix} ${draft.levelId}: ${merged.approachLabel}`);
 
+    let profileWarning = '';
     try {
       await updateProfile(token, config);
-      await addLogEntry('success', 'Profile updated');
     } catch (err) {
       console.warn('[Tracker] Profile update failed:', err);
-      await addLogEntry('warn', `Profile update failed: ${err.message}`);
+      profileWarning = `Solution published, but profile refresh failed: ${err.message}`;
     }
+
+    const resultMessage = getPublishResultMessage(merged);
+    await addLogEntry(profileWarning ? 'warn' : 'success', profileWarning || resultMessage);
 
     const published = {
       levelId: draft.levelId,
       targetName: draft.targetName,
       score: draft.score,
       charCount: draft.charCount,
-      approachLabel,
-      action: 'published',
+      approachLabel: merged.approachLabel,
+      previousApproachLabel: merged.previousApproachLabel || '',
+      action: merged.operation,
       timestamp: Date.now(),
+      profileWarning,
     };
     await chrome.storage.local.remove(DRAFT_STORAGE_KEY);
     await chrome.storage.local.set({ lastSubmission: published });
     chrome.runtime.sendMessage({ type: 'PUBLISH_RESULT', data: published }).catch(() => {});
-    return { success: true, action: merged.action, draft: null, published };
+    return {
+      success: true,
+      action: merged.action,
+      operation: merged.operation,
+      message: resultMessage,
+      warning: profileWarning,
+      draft: null,
+      published
+    };
   } catch (err) {
     const code = err.code || 'PUBLISH_FAILED';
     await addLogEntry('error', `Push failed: ${err.message}`);
@@ -215,20 +288,42 @@ async function publishDraft(payload = {}) {
       success: false,
       code,
       error: err.message,
-      requiresExistingApproachLabel: code === 'LEGACY_APPROACH_LABEL_REQUIRED',
+      comparison: err.comparison || null,
     }
   }
 }
 
-function parseExistingFile(fileData) {
+function createPublishError(code, message, extra = {}) {
+  const error = new Error(message);
+  error.code = code;
+  Object.assign(error, extra);
+  return error;
+}
+
+function parseExistingFile(fileData, filePath = 'repository file') {
   if (!fileData || !fileData.content) return null;
   try {
     const decoded = base64ToUtf8(fileData.content.replace(/\n/g, ''));
     return JSON.parse(decoded);
   } catch (err) {
     console.error('[Tracker] Failed to parse existing file:', err);
-    return null;
+    throw createPublishError(
+      'INVALID_REPOSITORY_DATA',
+      `The target file ${filePath} contains invalid JSON. Nothing was changed.`
+    );
   }
+}
+
+function parseSolutionRecords(fileData, filePath) {
+  const parsed = parseExistingFile(fileData, filePath);
+  if (parsed === null) return [];
+  if (!Array.isArray(parsed)) {
+    throw createPublishError(
+      'INVALID_REPOSITORY_DATA',
+      `The target file ${filePath} is not an array. Nothing was changed.`
+    );
+  }
+  return parsed;
 }
 
 function validateApproachLabel(value, fieldName) {
@@ -276,6 +371,24 @@ function getBestApproach(approaches) {
   }, null);
 }
 
+function toApproachSummary(approach) {
+  return {
+    id: approach.id || '',
+    label: approach.label || '',
+    score: approach.score,
+    match: approach.match,
+    characters: approach.characters,
+  };
+}
+
+function getOrderedApproachSummaries(approaches) {
+  const best = getBestApproach(approaches);
+  const ordered = best
+    ? [best, ...approaches.filter(approach => approach.id !== best.id)]
+    : approaches;
+  return ordered.map(toApproachSummary);
+}
+
 function buildApproach(d, label, id) {
   return {
     id,
@@ -317,44 +430,41 @@ function mirrorBestApproach(solution, approaches) {
   };
 }
 
-function mergeApproach(solution, draft, approachLabel, legacyApproachLabel) {
-  let approaches = Array.isArray(solution.approaches)
-    ? solution.approaches.map(approach => ({ ...approach }))
-    : [];
+function normalizeApproachLabel(label) {
+  return label.trim().toLocaleLowerCase('en');
+}
 
-  if (approaches.length === 0) {
-    const sameSubmission = solution.code === draft.code
-      && solution.score === draft.score
-      && solution.characters === draft.charCount;
-    if (!sameSubmission && !legacyApproachLabel) {
-      const error = new Error('Name the previously saved approach before adding this one.');
-      error.code = 'LEGACY_APPROACH_LABEL_REQUIRED';
-      throw error;
-    }
-
-    const savedLabel = legacyApproachLabel || approachLabel;
-    const savedId = createApproachId(savedLabel, approaches);
-    approaches.push(buildLegacyApproach(solution, savedLabel, savedId));
+function assertUniqueApproachLabel(approaches, label, excludedId = '') {
+  const normalized = normalizeApproachLabel(label);
+  const duplicate = approaches.find(approach => (
+    approach.id !== excludedId
+    && normalizeApproachLabel(approach.label) === normalized
+  ));
+  if (duplicate) {
+    throw createPublishError(
+      'DUPLICATE_APPROACH_LABEL',
+      `An approach named “${label}” already exists. Choose that approach to update it.`
+    );
   }
+}
 
-  const normalizedLabel = approachLabel.toLocaleLowerCase('en');
-  const existingIndex = approaches.findIndex(
-    approach => approach.label.trim().toLocaleLowerCase('en') === normalizedLabel
-  );
-
-  if (existingIndex >= 0) {
-    const existingId = approaches[existingIndex].id;
-    approaches[existingIndex] = buildApproach(draft, approachLabel, existingId);
-  } else {
-    if (approaches.length >= MAX_APPROACHES) {
-      const error = new Error(`This solution already has ${MAX_APPROACHES} approaches. Rename an existing approach to update it.`);
-      error.code = 'MAX_APPROACHES_REACHED';
-      throw error;
+function getDraftComparison(draft, approach) {
+  const candidate = { score: draft.score, characters: draft.charCount };
+  return {
+    result: compareApproaches(candidate, approach),
+    existing: {
+      score: approach.score,
+      characters: approach.characters,
+    },
+    draft: {
+      score: draft.score,
+      characters: draft.charCount,
     }
-    approaches.push(buildApproach(draft, approachLabel, createApproachId(approachLabel, approaches)));
-  }
+  };
+}
 
-  const updatedMetadata = {
+function getUpdatedSolutionMetadata(solution, draft) {
+  return {
     ...solution,
     name: draft.targetName,
     colors: draft.targetColors,
@@ -362,7 +472,112 @@ function mergeApproach(solution, draft, approachLabel, legacyApproachLabel) {
     url: draft.pageUrl,
     targetImage: draft.targetImage || solution.targetImage || null,
   };
-  return mirrorBestApproach(updatedMetadata, approaches);
+}
+
+function mergeLegacyApproach(solution, draft, payload) {
+  const legacyMode = payload.legacyMode;
+  const approachLabel = validateApproachLabel(payload.approachLabel, 'Approach name');
+
+  if (legacyMode === 'replace') {
+    const approaches = [buildApproach(draft, approachLabel, createApproachId(approachLabel, []))];
+    return {
+      solution: mirrorBestApproach(getUpdatedSolutionMetadata(solution, draft), approaches),
+      operation: 'update',
+      approachLabel,
+      previousApproachLabel: '',
+    };
+  }
+
+  if (legacyMode === 'preserve') {
+    const legacyApproachLabel = validateApproachLabel(
+      payload.legacyApproachLabel,
+      'Saved approach name'
+    );
+    if (normalizeApproachLabel(legacyApproachLabel) === normalizeApproachLabel(approachLabel)) {
+      throw createPublishError(
+        'DUPLICATE_APPROACH_LABEL',
+        'The saved solution and new draft need different approach names.'
+      );
+    }
+    const savedId = createApproachId(legacyApproachLabel, []);
+    const approaches = [buildLegacyApproach(solution, legacyApproachLabel, savedId)];
+    approaches.push(buildApproach(
+      draft,
+      approachLabel,
+      createApproachId(approachLabel, approaches)
+    ));
+    return {
+      solution: mirrorBestApproach(getUpdatedSolutionMetadata(solution, draft), approaches),
+      operation: 'create',
+      approachLabel,
+      previousApproachLabel: '',
+    };
+  }
+
+  throw createPublishError(
+    'LEGACY_MODE_REQUIRED',
+    'Choose whether this draft updates the saved solution or adds a different approach.'
+  );
+}
+
+function mergeNamedApproach(solution, draft, payload) {
+  const approaches = solution.approaches.map(approach => ({ ...approach }));
+  const mode = payload.mode;
+  const approachLabel = validateApproachLabel(payload.approachLabel, 'Approach name');
+
+  if (mode === 'create') {
+    if (approaches.length >= MAX_APPROACHES) {
+      throw createPublishError(
+        'MAX_APPROACHES_REACHED',
+        `This solution already has ${MAX_APPROACHES} approaches. Select one to update it.`
+      );
+    }
+    assertUniqueApproachLabel(approaches, approachLabel);
+    approaches.push(buildApproach(
+      draft,
+      approachLabel,
+      createApproachId(approachLabel, approaches)
+    ));
+    return {
+      solution: mirrorBestApproach(getUpdatedSolutionMetadata(solution, draft), approaches),
+      operation: 'create',
+      approachLabel,
+      previousApproachLabel: '',
+    };
+  }
+
+  if (mode !== 'update') {
+    throw createPublishError('PUBLISH_MODE_REQUIRED', 'Choose an existing approach or create a new one.');
+  }
+
+  const existingIndex = approaches.findIndex(approach => approach.id === payload.approachId);
+  if (existingIndex < 0) {
+    throw createPublishError(
+      'STALE_APPROACH',
+      'That approach changed on GitHub. Reload the latest approaches and try again.'
+    );
+  }
+
+  const existing = approaches[existingIndex];
+  assertUniqueApproachLabel(approaches, approachLabel, existing.id);
+  const comparison = getDraftComparison(draft, existing);
+  if (comparison.result < 0 && payload.confirmRegression !== true) {
+    throw createPublishError(
+      'REGRESSION_CONFIRMATION_REQUIRED',
+      'This draft scores worse than the saved approach. Confirm Update anyway to replace it.',
+      { comparison }
+    );
+  }
+
+  approaches[existingIndex] = buildApproach(draft, approachLabel, existing.id);
+  const renamed = normalizeApproachLabel(existing.label) !== normalizeApproachLabel(approachLabel)
+    || existing.label !== approachLabel;
+  return {
+    solution: mirrorBestApproach(getUpdatedSolutionMetadata(solution, draft), approaches),
+    operation: renamed ? 'rename' : 'update',
+    approachLabel,
+    previousApproachLabel: renamed ? existing.label : '',
+  };
 }
 
 function buildSolutionObject(d, approachLabel) {
@@ -387,20 +602,32 @@ function buildSolutionObject(d, approachLabel) {
   return mirrorBestApproach(base, [approach]);
 }
 
-function mergeDraftIntoRecords(existingRecords, draft, approachLabel, legacyApproachLabel, filePath) {
+function mergeDraftIntoRecords(existingRecords, draft, payload, filePath) {
   const records = existingRecords.map(solution => ({ ...solution }));
   const solutionIndex = records.findIndex(solution => solution.id === draft.levelId);
   const action = solutionIndex >= 0 ? 'update' : 'create';
+  let mergeResult;
 
   if (solutionIndex >= 0) {
-    records[solutionIndex] = mergeApproach(
-      records[solutionIndex],
-      draft,
-      approachLabel,
-      legacyApproachLabel
-    );
+    const solution = records[solutionIndex];
+    mergeResult = Array.isArray(solution.approaches) && solution.approaches.length > 0
+      ? mergeNamedApproach(solution, draft, payload)
+      : mergeLegacyApproach(solution, draft, payload);
+    records[solutionIndex] = mergeResult.solution;
   } else {
+    if (payload.mode && payload.mode !== 'create') {
+      throw createPublishError(
+        'STALE_APPROACH',
+        'This target has no saved approach to update. Create a new approach instead.'
+      );
+    }
+    const approachLabel = validateApproachLabel(payload.approachLabel, 'Approach name');
     records.push(buildSolutionObject(draft, approachLabel));
+    mergeResult = {
+      operation: 'create',
+      approachLabel,
+      previousApproachLabel: '',
+    };
   }
 
   if (filePath.startsWith('data/daily/')) {
@@ -409,7 +636,23 @@ function mergeDraftIntoRecords(existingRecords, draft, approachLabel, legacyAppr
     records.sort((a, b) => (a.battleNumber || 0) - (b.battleNumber || 0));
   }
 
-  return { action, records };
+  return {
+    action,
+    operation: mergeResult.operation,
+    approachLabel: mergeResult.approachLabel,
+    previousApproachLabel: mergeResult.previousApproachLabel,
+    records
+  };
+}
+
+function getPublishResultMessage(merged) {
+  if (merged.operation === 'rename') {
+    return `Updated and renamed “${merged.previousApproachLabel}” to “${merged.approachLabel}” on GitHub.`;
+  }
+  if (merged.operation === 'update') {
+    return `Updated “${merged.approachLabel}” on GitHub.`;
+  }
+  return `Created “${merged.approachLabel}” on GitHub.`;
 }
 
 function getFilePath(data) {
@@ -451,12 +694,27 @@ function getRepoUrl(config, path) {
   return `https://api.github.com/repos/${config.githubOwner}/${config.githubRepo}/contents/${path}`;
 }
 
-async function getFileFromGitHub(token, config, path) {
+async function getFileFromGitHub(token, config, path, options = {}) {
+  const strict = options.strict === true;
   try {
     const r = await fetch(`${getRepoUrl(config, path)}?ref=${config.githubBranch}`,
       { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
-    return r.ok ? await r.json() : null;
-  } catch { return null; }
+    if (r.ok) return await r.json();
+    if (r.status === 404) return null;
+    if (!strict) return null;
+    const message = await parseGitHubError(r);
+    throw createPublishError(
+      'GITHUB_READ_FAILED',
+      `Could not read ${path} from GitHub (${message}). Nothing was changed.`
+    );
+  } catch (err) {
+    if (!strict) return null;
+    if (err.code) throw err;
+    throw createPublishError(
+      'GITHUB_READ_FAILED',
+      `Could not read ${path} from GitHub: ${err.message}. Nothing was changed.`
+    );
+  }
 }
 
 async function pushToGitHub(token, config, path, content, sha, message, isBinary = false) {
@@ -560,11 +818,17 @@ async function parseGitHubError(r) {
   }
 }
 
-async function testGitHubConnection() {
-  const token = await getGitHubToken();
-  if (!token) return { success: false, error: 'No GitHub token saved. Paste your token below and click Save.' };
+async function testGitHubConnection(payload = {}) {
+  const savedToken = await getGitHubToken();
+  const token = typeof payload?.token === 'string' && payload.token.trim()
+    ? payload.token.trim()
+    : savedToken;
+  if (!token) return { success: false, error: 'Enter a GitHub token to test the connection.' };
 
-  const config = await getConfig();
+  const savedConfig = await getConfig();
+  const config = payload?.config && typeof payload.config === 'object'
+    ? { ...savedConfig, ...payload.config }
+    : savedConfig;
   const missing = validateConfig(config);
   if (missing.length > 0) {
     return { success: false, error: `Missing config: ${missing.join(', ')}` };
