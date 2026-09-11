@@ -2,9 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
-
-## [1.4.0] - 2026-09-02
+## [1.4.0] - 2026-09-11
 
 ### Added
 
@@ -17,11 +15,15 @@ All notable changes to this project will be documented in this file.
 - Reworked legacy solution publishing so users choose whether to replace or preserve the unnamed solution
 - Compacted popup activity and settings while keeping connection actions visible
 - Made publish context reads validate current GitHub data before any write
+- Gave draft and publish notifications success and error styles
+- Restyled plugin buttons with the site typeface and button colors with a taller panel layout
 
 ### Fixed
 
 - Prevented duplicate labels, stale approach updates, malformed JSON overwrites, target mismatches, and silent three-approach overflow
 - Kept partial publish success visible when only the profile refresh fails
+- Show the Publish button on battle pages that have no Top Solutions action
+- Keep the Publish button anchored in the action row so it no longer lags while scrolling
 
 ## [1.3.2] - 2026-09-01
 
