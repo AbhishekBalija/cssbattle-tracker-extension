@@ -178,7 +178,7 @@
       z-index: 2147483647;
       padding: 10px 14px;
       border-radius: 6px;
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-family: inherit;
       font-size: 12px;
       font-weight: 600;
       color: #fff;
@@ -286,15 +286,27 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
-      padding: 12px;
+      min-height: 248px;
+      padding: 14px;
       border-radius: 10px;
       background: rgba(24, 29, 35, 0.96);
       border: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 8px 24px rgba(0,0,0,0.35);
       backdrop-filter: blur(8px);
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-family: inherit;
       box-sizing: border-box;
     `;
+
+    // Use the site's own font variable so the panel always tracks the
+    // native typeface (same source the action-row buttons use).
+    const referenceButton = document.querySelector('.btn-group .button')
+      || document.querySelector('.btn-group button');
+    const fallbackFamily = referenceButton
+      ? getComputedStyle(referenceButton).fontFamily
+      : '';
+    toolbar.style.fontFamily = fallbackFamily
+      ? `var(--font-base, ${fallbackFamily})`
+      : 'var(--font-base)';
 
     const header = document.createElement('div');
     header.style.cssText = `
@@ -318,6 +330,7 @@
       background: transparent;
       border: none;
       color: #8899aa;
+      font: inherit;
       font-size: 16px;
       line-height: 1;
       cursor: pointer;
@@ -333,8 +346,10 @@
     const pluginGrid = document.createElement('div');
     pluginGrid.style.cssText = `
       display: grid;
+      flex: 1;
+      align-content: center;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 8px;
+      gap: 12px;
     `;
 
     active.forEach(plugin => {
@@ -374,18 +389,19 @@
         width: 100%;
         min-height: 46px;
         padding: 7px 8px 7px 12px;
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid #46545f;
         border-radius: 9px;
-        background: ${plugin.category === 'template' ? '#34384a' : '#21262d'};
-        color: #e0e0e0;
+        background: #34424e;
+        color: #f2f5f7;
+        font-family: inherit;
         font-size: 12px;
         font-weight: 600;
         text-align: left;
         cursor: pointer;
         transition: background 0.15s, transform 0.05s;
       `;
-      btn.addEventListener('mouseenter', () => { btn.style.background = plugin.category === 'template' ? '#41475d' : '#30363d'; });
-      btn.addEventListener('mouseleave', () => { btn.style.background = plugin.category === 'template' ? '#34384a' : '#21262d'; });
+      btn.addEventListener('mouseenter', () => { btn.style.background = '#3d4c58'; });
+      btn.addEventListener('mouseleave', () => { btn.style.background = '#34424e'; });
       btn.addEventListener('mousedown', () => { btn.style.transform = 'scale(0.98)'; });
       btn.addEventListener('mouseup', () => { btn.style.transform = 'scale(1)'; });
       btn.addEventListener('click', () => {
@@ -408,9 +424,10 @@
       width: 100%;
       padding: 8px 10px;
       border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 6px;
+      border-radius: 10px;
       background: transparent;
       color: #8899aa;
+      font-family: inherit;
       font-size: 12px;
       font-weight: 600;
       text-align: center;

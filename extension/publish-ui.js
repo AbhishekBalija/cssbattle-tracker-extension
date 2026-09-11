@@ -32,10 +32,8 @@
   let lastFocusedElement = null;
   let modalKeydownHandler = null;
   let mountFrame = null;
-  let positionFrame = null;
   let mountedSubmitButton = null;
   let mountedButtonGroup = null;
-  let submitResizeObserver = null;
 
   function addStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -64,12 +62,15 @@
       }
 
       #${PUBLISH_BUTTON_ID} {
-        position: fixed;
-        z-index: 2147483645;
+        position: static;
+        z-index: auto;
         display: none;
+        width: 100% !important;
         min-width: 0;
-        min-height: 0;
-        padding: 0 22px;
+        min-height: 44px;
+        padding: 10px 22px;
+        align-self: stretch;
+        grid-column: 3 / span 2;
         border: 1px solid #46545f;
         border-radius: 999px;
         background: #34424e;
@@ -419,6 +420,18 @@
         transform: translateX(-50%);
       }
 
+      .cssbattle-publish-toast[data-variant='success'] {
+        border-color: #2e7d32;
+        background: #1b3a24;
+        color: #c8e6c9;
+      }
+
+      .cssbattle-publish-toast[data-variant='error'] {
+        border-color: #c62828;
+        background: #3d1a1a;
+        color: #ffcdd2;
+      }
+
       @media (max-width: 620px) {
         #${PUBLISH_BUTTON_ID} {
           padding-inline: 12px;
@@ -462,9 +475,17 @@
   }
 
   function findSubmitButton() {
-    return Array.from(document.querySelectorAll('button')).find(button => {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const byText = buttons.find(button => {
       if (button.id === PUBLISH_BUTTON_ID || button.closest(`#${MODAL_ID}`)) return false;
       return /^Submit/i.test(button.textContent.trim());
+    });
+    if (byText) return byText;
+    // Fallback for action rows where the label is wrapped in nested markup:
+    // the primary button inside the same .btn-group is the Submit control.
+    return buttons.find(button => {
+      if (button.id === PUBLISH_BUTTON_ID || button.closest(`#${MODAL_ID}`)) return false;
+      return button.classList.contains('button--primary') && button.closest('.btn-group');
     }) || null;
   }
 
@@ -488,44 +509,39 @@
     return button;
   }
 
-  function schedulePublishPosition() {
-    if (positionFrame !== null) return;
-    positionFrame = window.requestAnimationFrame(() => {
-      positionFrame = null;
-      positionPublishButton();
-    });
+  function hasTopSolutionsButton() {
+    return Array.from(mountedButtonGroup?.children || []).some(element =>
+      element instanceof HTMLButtonElement
+        && element.id !== PUBLISH_BUTTON_ID
+        && /^Top Solutions/i.test(element.textContent.trim())
+    );
   }
 
   function positionPublishButton() {
     const publishButton = document.getElementById(PUBLISH_BUTTON_ID);
-    if (!publishButton || !mountedSubmitButton?.isConnected) {
+    if (!publishButton || !mountedSubmitButton?.isConnected || !mountedButtonGroup?.isConnected) {
       if (publishButton) publishButton.style.display = 'none';
       return;
     }
 
-    const submitRect = mountedSubmitButton.getBoundingClientRect();
-    const topSolutionsButton = Array.from(mountedButtonGroup?.children || []).find(element =>
-      element instanceof HTMLButtonElement && /^Top Solutions/i.test(element.textContent.trim())
-    );
-    const topSolutionsRect = topSolutionsButton?.getBoundingClientRect();
-    const columnGap = Number.parseFloat(getComputedStyle(mountedButtonGroup).columnGap) || 0;
-    if (!topSolutionsRect || submitRect.width <= 0 || submitRect.height <= 0) {
-      publishButton.style.display = 'none';
-      return;
+    // Keep Publish as a real grid child before Submit so it scrolls with
+    // the native buttons instead of floating as a fixed overlay.
+    if (publishButton.parentElement !== mountedButtonGroup
+      || publishButton.nextElementSibling !== mountedSubmitButton) {
+      mountedButtonGroup.insertBefore(publishButton, mountedSubmitButton);
     }
 
-    const left = topSolutionsRect.right + columnGap;
-    const right = submitRect.left - columnGap;
-    publishButton.style.left = `${left}px`;
-    publishButton.style.top = `${submitRect.top}px`;
-    publishButton.style.width = `${Math.max(80, right - left)}px`;
-    publishButton.style.height = `${submitRect.height}px`;
-    const referenceStyles = getComputedStyle(topSolutionsButton || mountedSubmitButton);
-    publishButton.style.fontFamily = referenceStyles.fontFamily;
-    publishButton.style.fontSize = referenceStyles.fontSize;
-    publishButton.style.fontWeight = referenceStyles.fontWeight;
-    publishButton.style.letterSpacing = referenceStyles.letterSpacing;
-    publishButton.style.textTransform = referenceStyles.textTransform;
+    if (hasTopSolutionsButton()) {
+      // Daily targets: Plugins / My Solutions on row one, then
+      // Top Solutions (cols 1-2), Publish (cols 3-4), Submit (cols 5-6).
+      publishButton.style.gridColumn = '3 / span 2';
+      mountedSubmitButton.style.gridColumn = '5 / span 2';
+    } else {
+      // Battles: no Top Solutions button, so Publish and Submit share
+      // row two equally instead of hiding Publish.
+      publishButton.style.gridColumn = '1 / span 3';
+      mountedSubmitButton.style.gridColumn = '4 / span 3';
+    }
     publishButton.style.display = 'block';
   }
 
@@ -533,14 +549,9 @@
     addStyles();
 
     const submitButton = findSubmitButton();
-    let publishButton = document.getElementById(PUBLISH_BUTTON_ID);
-    if (!publishButton && document.body) {
-      publishButton = createPublishButton();
-      document.body.appendChild(publishButton);
-    }
-
     if (!submitButton) {
-      if (publishButton) publishButton.style.display = 'none';
+      const orphan = document.getElementById(PUBLISH_BUTTON_ID);
+      if (orphan) orphan.style.display = 'none';
       return;
     }
 
@@ -549,10 +560,12 @@
       mountedButtonGroup?.removeAttribute(GROUP_MARKER);
       mountedSubmitButton = submitButton;
       mountedButtonGroup = submitButton.parentElement;
-      submitResizeObserver?.disconnect();
-      submitResizeObserver = new ResizeObserver(schedulePublishPosition);
-      submitResizeObserver.observe(submitButton);
-      if (mountedButtonGroup) submitResizeObserver.observe(mountedButtonGroup);
+    }
+
+    let publishButton = document.getElementById(PUBLISH_BUTTON_ID);
+    if (!publishButton) {
+      publishButton = createPublishButton();
+      mountedButtonGroup.insertBefore(publishButton, mountedSubmitButton);
     }
 
     mountedButtonGroup?.setAttribute(GROUP_MARKER, 'true');
@@ -560,7 +573,7 @@
       submitButton.setAttribute(SUBMIT_MARKER, 'true');
     }
     updatePublishButton();
-    schedulePublishPosition();
+    positionPublishButton();
   }
 
   function updatePublishButton() {
@@ -1064,7 +1077,7 @@
           currentDraft = null;
           updatePublishButton();
           closeModal();
-          showToast(result.warning || result.message || 'Published to GitHub');
+          showToast(result.warning || result.message || 'Published to GitHub', result.warning ? 'info' : 'success');
           return;
         }
         if (result?.code === 'REGRESSION_CONFIRMATION_REQUIRED' && result.comparison) {
@@ -1131,11 +1144,12 @@
     loadPublishContext();
   }
 
-  function showToast(message) {
+  function showToast(message, variant = 'info') {
     if (!document.body) return;
     document.querySelector('.cssbattle-publish-toast')?.remove();
     const toast = document.createElement('div');
     toast.className = 'cssbattle-publish-toast';
+    toast.dataset.variant = variant;
     toast.setAttribute('role', 'status');
     toast.textContent = message;
     document.body.appendChild(toast);
@@ -1159,7 +1173,7 @@
     currentDraft = changes[DRAFT_STORAGE_KEY].newValue || null;
     updatePublishButton();
     if (currentDraft && currentDraft.capturedAt !== previousDraft?.capturedAt) {
-      showToast('Draft saved locally');
+      showToast('Draft saved locally', 'success');
     }
   });
 
@@ -1176,8 +1190,6 @@
       });
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    window.addEventListener('resize', schedulePublishPosition);
-    window.addEventListener('scroll', schedulePublishPosition, true);
   }
 
   if (document.readyState === 'loading') {
