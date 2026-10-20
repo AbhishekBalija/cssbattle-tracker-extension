@@ -15,6 +15,7 @@ const {
   getBestApproach,
   compareApproaches,
   normalizeLabel: normalizeApproachLabel,
+  normalizeInsight,
   mirrorBestApproach,
   validateSolutionRecord,
 } = self.__cssbattleApproachContract;
@@ -382,6 +383,7 @@ function toApproachSummary(approach) {
     score: approach.score,
     match: approach.match,
     characters: approach.characters,
+    ...(approach.insight ? { insight: approach.insight } : {}),
   };
 }
 
@@ -393,8 +395,8 @@ function getOrderedApproachSummaries(approaches) {
   return ordered.map(toApproachSummary);
 }
 
-function buildApproach(d, label, id) {
-  return {
+function buildApproach(d, label, id, rawInsight) {
+  const approach = {
     id,
     label,
     score: d.score,
@@ -404,6 +406,10 @@ function buildApproach(d, label, id) {
     tags: d.validationTags,
     code: d.code,
   };
+  // Optional: stored only when the author actually wrote something.
+  const insight = normalizeInsight(rawInsight);
+  if (insight) approach.insight = insight;
+  return approach;
 }
 
 function buildLegacyApproach(solution, label, id) {
@@ -464,7 +470,12 @@ function mergeLegacyApproach(solution, draft, payload) {
   const approachLabel = validateApproachLabel(payload.approachLabel, 'Approach name');
 
   if (legacyMode === 'replace') {
-    const approaches = [buildApproach(draft, approachLabel, createApproachId(approachLabel, []))];
+    const approaches = [buildApproach(
+      draft,
+      approachLabel,
+      createApproachId(approachLabel, []),
+      payload.insight
+    )];
     return {
       solution: mirrorBestApproach(getUpdatedSolutionMetadata(solution, draft), approaches),
       operation: 'update',
@@ -489,7 +500,8 @@ function mergeLegacyApproach(solution, draft, payload) {
     approaches.push(buildApproach(
       draft,
       approachLabel,
-      createApproachId(approachLabel, approaches)
+      createApproachId(approachLabel, approaches),
+      payload.insight
     ));
     return {
       solution: mirrorBestApproach(getUpdatedSolutionMetadata(solution, draft), approaches),
@@ -521,7 +533,8 @@ function mergeNamedApproach(solution, draft, payload) {
     approaches.push(buildApproach(
       draft,
       approachLabel,
-      createApproachId(approachLabel, approaches)
+      createApproachId(approachLabel, approaches),
+      payload.insight
     ));
     return {
       solution: mirrorBestApproach(getUpdatedSolutionMetadata(solution, draft), approaches),
@@ -554,7 +567,9 @@ function mergeNamedApproach(solution, draft, payload) {
     );
   }
 
-  approaches[existingIndex] = buildApproach(draft, approachLabel, existing.id);
+  // No insight in the payload means "leave it as saved".
+  const insight = payload.insight === undefined ? existing.insight : payload.insight;
+  approaches[existingIndex] = buildApproach(draft, approachLabel, existing.id, insight);
   const renamed = normalizeApproachLabel(existing.label) !== normalizeApproachLabel(approachLabel)
     || existing.label !== approachLabel;
   return {
@@ -565,7 +580,7 @@ function mergeNamedApproach(solution, draft, payload) {
   };
 }
 
-function buildSolutionObject(d, approachLabel) {
+function buildSolutionObject(d, approachLabel, insight) {
   const solutionDate = getSolutionDate(d);
   const base = {
     id: d.levelId,
@@ -583,7 +598,7 @@ function buildSolutionObject(d, approachLabel) {
     targetImage: d.targetImage || null,
     code: d.code,
   };
-  const approach = buildApproach(d, approachLabel, createApproachId(approachLabel, []));
+  const approach = buildApproach(d, approachLabel, createApproachId(approachLabel, []), insight);
   return mirrorBestApproach(base, [approach]);
 }
 
@@ -607,7 +622,7 @@ function mergeDraftIntoRecords(existingRecords, draft, payload, filePath) {
       );
     }
     const approachLabel = validateApproachLabel(payload.approachLabel, 'Approach name');
-    records.push(buildSolutionObject(draft, approachLabel));
+    records.push(buildSolutionObject(draft, approachLabel, payload.insight));
     mergeResult = {
       operation: 'create',
       approachLabel,

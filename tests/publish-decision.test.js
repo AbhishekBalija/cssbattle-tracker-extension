@@ -83,6 +83,8 @@ function baseSelection(overrides = {}) {
     approachInputValue: '',
     approachInputDataset: '',
     legacyInputValue: '',
+    insightValue: '',
+    insightDataset: '',
     ...overrides
   };
 }
@@ -93,7 +95,7 @@ test('first approach renders a create view and payload', () => {
   assert.equal(view.confirmLabel, 'Create approach');
   assert.equal(view.comparison, null);
   assert.equal(view.warning, null);
-  assert.deepEqual(payload, { mode: 'create', approachLabel: 'My approach' });
+  assert.deepEqual(payload, { mode: 'create', approachLabel: 'My approach', insight: '' });
 });
 
 test('named create lists approaches plus an enabled New approach choice', () => {
@@ -109,7 +111,7 @@ test('named create lists approaches plus an enabled New approach choice', () => 
   assert.equal(view.namedChoices[2].checked, true);
   assert.equal(view.approachInputValue, 'Draft name');
   assert.equal(view.confirmLabel, 'Create approach');
-  assert.deepEqual(payload, { mode: 'create', approachLabel: 'Typed' });
+  assert.deepEqual(payload, { mode: 'create', approachLabel: 'Typed', insight: '' });
 });
 
 test('named create disables New approach at the maximum with an explanatory note', () => {
@@ -138,7 +140,8 @@ test('updating with a better draft keeps Update approach and no warning', () => 
     mode: 'update',
     approachId: 'a1',
     approachLabel: 'Flexbox',
-    confirmRegression: false
+    confirmRegression: false,
+    insight: ''
   });
 });
 
@@ -210,7 +213,8 @@ test('legacy replace updates while legacy preserve creates', () => {
     legacyMode: 'replace',
     approachLabel: 'Named',
     legacyApproachLabel: '',
-    confirmRegression: false
+    confirmRegression: false,
+    insight: ''
   });
 
   const preserve = decide(
@@ -225,7 +229,8 @@ test('legacy replace updates while legacy preserve creates', () => {
     legacyMode: 'preserve',
     approachLabel: 'New',
     legacyApproachLabel: 'Old',
-    confirmRegression: false
+    confirmRegression: false,
+    insight: ''
   });
 });
 
@@ -260,4 +265,68 @@ test('initialSelection prefers update of the first approach, else legacy update,
     initialSelection({ ...makeNamedContext(), approaches: [] }),
     { mode: 'create', selectedApproachId: '' }
   );
+});
+
+test('payload carries insight on create, update and legacy', () => {
+  const insightValue = 'One shadow draws both circles';
+  const first = decide(
+    makeDraft(),
+    { ...makeNamedContext(), approaches: [] },
+    baseSelection({ approachInputValue: 'Shadow', insightValue })
+  );
+  assert.equal(first.payload.insight, insightValue);
+
+  const created = decide(makeDraft(), makeNamedContext(), baseSelection({ mode: 'create', insightValue }));
+  assert.equal(created.payload.insight, insightValue);
+
+  const updated = decide(
+    makeDraft(),
+    makeNamedContext(),
+    baseSelection({ mode: 'update', selectedApproachId: 'a1', insightValue, insightDataset: 'a1' })
+  );
+  assert.equal(updated.payload.insight, insightValue);
+
+  const legacy = decide(makeDraft(), makeLegacyContext(), baseSelection({ mode: 'update', insightValue }));
+  assert.equal(legacy.payload.insight, insightValue);
+});
+
+test('update view prefills selected approach insight', () => {
+  const ctx = makeNamedContext({
+    approaches: [makeApproach({ insight: 'Saved trick' }), makeApproach({ id: 'a2', label: 'Grid' })]
+  });
+
+  // Field not yet synced to a1: show and send the saved insight.
+  const fresh = decide(makeDraft(), ctx, baseSelection({ mode: 'update', selectedApproachId: 'a1' }));
+  assert.equal(fresh.view.insightPrefill, 'Saved trick');
+  assert.equal(fresh.view.insightDatasetId, 'a1');
+  assert.equal(fresh.payload.insight, 'Saved trick');
+
+  // Field synced to a1 and edited: keep what the author typed.
+  const edited = decide(
+    makeDraft(),
+    ctx,
+    baseSelection({ mode: 'update', selectedApproachId: 'a1', insightDataset: 'a1', insightValue: 'Edited' })
+  );
+  assert.equal(edited.view.insightPrefill, null);
+  assert.equal(edited.payload.insight, 'Edited');
+
+  // Switching to an approach without an insight clears the field.
+  const switched = decide(
+    makeDraft(),
+    ctx,
+    baseSelection({ mode: 'update', selectedApproachId: 'a2', insightDataset: 'a1', insightValue: 'Saved trick' })
+  );
+  assert.equal(switched.view.insightPrefill, '');
+  assert.equal(switched.payload.insight, '');
+});
+
+test('switching from update to create clears a prefilled insight', () => {
+  const { view, payload } = decide(
+    makeDraft(),
+    makeNamedContext(),
+    baseSelection({ mode: 'create', insightDataset: 'a1', insightValue: 'Saved trick' })
+  );
+  assert.equal(view.insightPrefill, '');
+  assert.equal(view.insightDatasetId, '');
+  assert.equal(payload.insight, '');
 });

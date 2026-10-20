@@ -48,6 +48,8 @@
       approachInputValue: '',
       approachInputDataset: '',
       legacyInputValue: '',
+      insightValue: '',
+      insightDataset: '',
       ...selection
     };
   }
@@ -257,11 +259,39 @@
     };
   }
 
-  function decide(draft, publishContext, selection) {
-    const sel = withDefaults(selection);
+  /**
+   * Which insight the field should show and send.
+   * Updating: the field starts with the selected approach's saved insight;
+   * once synced (dataset = approach id) the typed text wins.
+   * Creating: a field still holding a prefilled insight is cleared.
+   */
+  function insightState(publishContext, sel, isUpdate) {
+    if (isUpdate) {
+      if (sel.insightDataset !== sel.selectedApproachId) {
+        const selected = publishContext.approaches.find(item => item.id === sel.selectedApproachId);
+        const saved = selected?.insight || '';
+        return { prefill: saved, datasetId: sel.selectedApproachId, value: saved };
+      }
+      return { prefill: null, datasetId: null, value: sel.insightValue };
+    }
+    if (sel.insightDataset !== '') return { prefill: '', datasetId: '', value: '' };
+    return { prefill: null, datasetId: null, value: sel.insightValue };
+  }
+
+  function chooseDecision(draft, publishContext, sel) {
     if (publishContext.legacy) return decideLegacy(draft, publishContext, sel);
     if (publishContext.approaches.length > 0) return decideNamed(draft, publishContext, sel);
     return decideFirst(draft, sel);
+  }
+
+  function decide(draft, publishContext, selection) {
+    const sel = withDefaults(selection);
+    const result = chooseDecision(draft, publishContext, sel);
+    const insight = insightState(publishContext, sel, result.view.kind === 'named-update');
+    result.view.insightPrefill = insight.prefill;
+    result.view.insightDatasetId = insight.datasetId;
+    result.payload.insight = insight.value;
+    return result;
   }
 
   const api = { decide, compareScores, initialSelection };

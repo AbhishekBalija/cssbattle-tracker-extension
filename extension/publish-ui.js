@@ -209,6 +209,12 @@
         font-size: 14px;
       }
 
+      textarea.cssbattle-publish-input {
+        min-height: 64px;
+        resize: vertical;
+        line-height: 1.5;
+      }
+
       .cssbattle-publish-input::placeholder {
         color: #687783;
       }
@@ -741,6 +747,32 @@
     renameButton.textContent = 'Rename approach';
     renameButton.hidden = true;
 
+    // Optional one-line note on the key trick, shown under the code on the archive.
+    const insightField = document.createElement('div');
+    insightField.className = 'cssbattle-publish-field';
+    insightField.hidden = true;
+    const insightLabel = document.createElement('label');
+    insightLabel.className = 'cssbattle-publish-label';
+    insightLabel.htmlFor = 'cssbattle-approach-insight';
+    insightLabel.textContent = 'Insight (optional)';
+    const insightInput = document.createElement('textarea');
+    insightInput.className = 'cssbattle-publish-input';
+    insightInput.id = 'cssbattle-approach-insight';
+    insightInput.maxLength = 200;
+    insightInput.rows = 2;
+    insightInput.placeholder = 'e.g. One box-shadow draws both circles';
+    const insightHelp = document.createElement('p');
+    insightHelp.className = 'cssbattle-publish-help';
+    insightHelp.id = 'cssbattle-insight-help';
+    insightInput.setAttribute('aria-describedby', insightHelp.id);
+    insightField.append(insightLabel, insightInput, insightHelp);
+
+    function updateInsightHelp() {
+      insightHelp.textContent = `The key trick or tradeoff, in your words. ${insightInput.value.length}/200`;
+    }
+    updateInsightHelp();
+    insightInput.addEventListener('input', updateInsightHelp);
+
     const legacy = makeField(
       'cssbattle-legacy-approach-name',
       'Saved approach name',
@@ -817,7 +849,9 @@
         forcedRegression,
         approachInputValue: approach.input.value,
         approachInputDataset: approach.input.dataset.approachId || '',
-        legacyInputValue: legacy.input.value
+        legacyInputValue: legacy.input.value,
+        insightValue: insightInput.value,
+        insightDataset: insightInput.dataset.approachId || ''
       };
     }
 
@@ -909,6 +943,12 @@
       renameButton.hidden = view.renameButtonHidden;
       renameButton.textContent = view.renameButtonLabel;
       approach.field.hidden = view.approachFieldHidden;
+      insightField.hidden = false;
+      if (view.insightDatasetId !== null) insightInput.dataset.approachId = view.insightDatasetId;
+      if (view.insightPrefill !== null) {
+        insightInput.value = view.insightPrefill;
+        updateInsightHelp();
+      }
       approachLabelElement.textContent = view.approachFieldLabel;
       approachHelp.textContent = view.approachFieldHelp;
 
@@ -1054,6 +1094,7 @@
       approach.field,
       renameButton,
       legacy.field,
+      insightField,
       suggestions,
       status,
       retryButton,

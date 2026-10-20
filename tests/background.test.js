@@ -705,3 +705,94 @@ test('merged record passes shared contract validation', () => {
   }).records[0];
   assert.deepEqual(validate(preserved), []);
 });
+
+function createWithInsight(context, insight) {
+  return runMerge(context, [], makeDraft(), {
+    mode: 'create',
+    approachLabel: 'Nested template',
+    insight
+  }).records[0];
+}
+
+test('create stores normalized insight', () => {
+  const solution = createWithInsight(createBackgroundContext(), '  One shadow  draws both  ');
+  assert.equal(solution.approaches[0].insight, 'One shadow draws both');
+});
+
+test('blank insight publishes without insight', () => {
+  const solution = createWithInsight(createBackgroundContext(), '   ');
+  assert.equal(Object.hasOwn(solution.approaches[0], 'insight'), false);
+});
+
+test('newline in insight is collapsed', () => {
+  const solution = createWithInsight(createBackgroundContext(), 'a\nb');
+  assert.equal(solution.approaches[0].insight, 'a b');
+});
+
+test('insight is not mirrored to top level', () => {
+  const solution = createWithInsight(createBackgroundContext(), 'Saved trick');
+  assert.equal(Object.hasOwn(solution, 'insight'), false);
+});
+
+test('update keeps existing insight when field unchanged', () => {
+  const context = createBackgroundContext();
+  const saved = createWithInsight(context, 'Saved trick');
+  const updated = runMerge(context, [saved], makeDraft({ score: 710 }), {
+    mode: 'update',
+    approachId: saved.approaches[0].id,
+    approachLabel: 'Nested template'
+  }).records[0];
+  assert.equal(updated.approaches[0].insight, 'Saved trick');
+});
+
+test('update with empty insight clears it', () => {
+  const context = createBackgroundContext();
+  const saved = createWithInsight(context, 'Saved trick');
+  const updated = runMerge(context, [saved], makeDraft({ score: 710 }), {
+    mode: 'update',
+    approachId: saved.approaches[0].id,
+    approachLabel: 'Nested template',
+    insight: ''
+  }).records[0];
+  assert.equal(Object.hasOwn(updated.approaches[0], 'insight'), false);
+});
+
+test('legacy preserve leaves saved approach without insight', () => {
+  const context = createBackgroundContext();
+  const legacy = {
+    id: 'daily-1',
+    name: 'Daily Target',
+    type: 'daily',
+    score: 720,
+    match: 100,
+    characters: 110,
+    colors: ['#000000'],
+    date: '2026-09-01',
+    timestamp: '2026-09-01T09:00:00.000Z',
+    tags: ['css'],
+    url: 'https://cssbattle.dev/play/daily-1',
+    targetImage: null,
+    code: '<style>*{background:#111}'
+  };
+  const solution = runMerge(context, [legacy], makeDraft(), {
+    mode: 'create',
+    legacyMode: 'preserve',
+    approachLabel: 'Multiple elements',
+    legacyApproachLabel: 'Background only',
+    insight: 'New draft trick'
+  }).records[0];
+  const saved = solution.approaches.find(item => item.label === 'Background only');
+  const added = solution.approaches.find(item => item.label === 'Multiple elements');
+  assert.equal(Object.hasOwn(saved, 'insight'), false);
+  assert.equal(added.insight, 'New draft trick');
+});
+
+test('publish context summaries include saved insight', async () => {
+  const context = createBackgroundContext();
+  const saved = createWithInsight(context, 'Saved trick');
+  context.testApproaches = [saved.approaches[0]];
+  const summaries = JSON.parse(JSON.stringify(
+    vm.runInContext('getOrderedApproachSummaries(testApproaches)', context)
+  ));
+  assert.equal(summaries[0].insight, 'Saved trick');
+});

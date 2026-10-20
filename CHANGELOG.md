@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - Unreleased
+
+### Added
+
+- Added an optional insight field to the Publish modal: one short line (up to 200 characters) on the key trick, stored on the approach and shown under the code on the archive
+- Updating an approach prefills its saved insight, so publishing a better score keeps the note unless you change it
+
+### Changed
+
+- Approach rules (ranking, names, insight, record checks) now come from a shared contract file that the archive site also uses; CI fails if the two copies drift
+- Every published record is checked against those rules before anything is written to GitHub
+- Moved the Publish modal's decision logic into publish-decision.js with its own tests
+- Removed unused RUN_PLUGIN/UNDO_PLUGIN message handlers; plugins run from their own panel
+
 ## [1.4.1] - 2026-10-20
 
 ### Fixed
