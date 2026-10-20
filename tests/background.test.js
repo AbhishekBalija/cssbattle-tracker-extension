@@ -57,6 +57,14 @@ function createBackgroundContext(options = {}) {
       }
     }
   });
+  // The service worker loads the shared contract with importScripts.
+  context.self = context;
+  context.importScripts = (...files) => {
+    for (const file of files) {
+      const source = fs.readFileSync(path.join(__dirname, '..', 'extension', file), 'utf8');
+      vm.runInContext(source, context);
+    }
+  };
   context.fetchCalls = fetchCalls;
   context.localStore = localStore;
   context.syncStore = syncStore;
@@ -651,4 +659,49 @@ test('large files are base64 encoded without overflowing the call stack', () => 
   const big = JSON.stringify({ text: 'é—'.repeat(200000) });
   const encoded = context.utf8ToBase64(big);
   assert.equal(context.base64ToUtf8(encoded), big);
+});
+
+test('merged record passes shared contract validation', () => {
+  const context = createBackgroundContext();
+  // JSON copy so the array from the vm realm compares with a local [].
+  const validate = record => JSON.parse(JSON.stringify(vm.runInContext(
+    '__cssbattleApproachContract.validateSolutionRecord(testRecord)',
+    Object.assign(context, { testRecord: record })
+  )));
+
+  const created = runMerge(context, [], makeDraft(), {
+    mode: 'create',
+    approachLabel: 'Nested template with gradients'
+  }).records[0];
+  assert.deepEqual(validate(created), []);
+
+  const updated = runMerge(context, [created], makeDraft({ score: 710 }), {
+    mode: 'update',
+    approachId: created.approaches[0].id,
+    approachLabel: 'Nested template with gradients'
+  }).records[0];
+  assert.deepEqual(validate(updated), []);
+
+  const legacy = {
+    id: 'daily-1',
+    name: 'Daily Target',
+    type: 'daily',
+    score: 720,
+    match: 100,
+    characters: 110,
+    colors: ['#000000'],
+    date: '2026-09-01',
+    timestamp: '2026-09-01T09:00:00.000Z',
+    tags: ['css'],
+    url: 'https://cssbattle.dev/play/daily-1',
+    targetImage: null,
+    code: '<style>*{background:#111}'
+  };
+  const preserved = runMerge(context, [legacy], makeDraft(), {
+    mode: 'create',
+    legacyMode: 'preserve',
+    approachLabel: 'Multiple elements with gradients',
+    legacyApproachLabel: 'Background only with gradients'
+  }).records[0];
+  assert.deepEqual(validate(preserved), []);
 });

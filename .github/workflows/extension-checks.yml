@@ -28,6 +28,7 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check extension/background.js
+          node --check extension/approach-contract.js
           node --check extension/content.js
           node --check extension/content-main.js
           node --check extension/plugin-manager.js
@@ -40,3 +41,9 @@ jobs:
 
       - name: Test
         run: node --test tests/background.test.js tests/publish-decision.test.js
+
+      - name: Approach contract matches the archive
+        # The archive repo owns this file; this copy must stay byte-identical.
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/AbhishekBalija/My-CSS-Battle/main/shared/approach-contract.js \
+            | diff - extension/approach-contract.js

@@ -7,9 +7,20 @@
  * so the extension can be used by any CSSBattle player.
  */
 
+// Approach rules shared with the archive site (same file in both repos).
+importScripts('approach-contract.js');
+const {
+  MAX_APPROACHES,
+  LABEL_MAX,
+  getBestApproach,
+  compareApproaches,
+  normalizeLabel: normalizeApproachLabel,
+  mirrorBestApproach,
+  validateSolutionRecord,
+} = self.__cssbattleApproachContract;
+
 const CONFIG_STORAGE_KEY = 'cssbattleExtensionConfig';
 const DRAFT_STORAGE_KEY = 'pendingSolutionDraft';
-const MAX_APPROACHES = 3;
 
 const DEFAULT_CONFIG = {
   githubOwner: '',
@@ -212,7 +223,7 @@ async function getPublishContext() {
       legacy: !!solution && !hasApproaches,
       legacySolution: solution && !hasApproaches ? toApproachSummary(solution) : null,
       bestApproachId: hasApproaches
-        ? (getBestApproach(solution.approaches)?.id || solution.bestApproachId || '')
+        ? (getBestApproach(solution.approaches, solution.bestApproachId)?.id || '')
         : '',
       approaches,
       canCreate: !solution || !hasApproaches || approaches.length < MAX_APPROACHES,
@@ -341,8 +352,8 @@ function validateApproachLabel(value, fieldName) {
     error.code = 'APPROACH_LABEL_REQUIRED';
     throw error;
   }
-  if (label.length > 80) {
-    const error = new Error(`${fieldName} must be 80 characters or fewer.`);
+  if (label.length > LABEL_MAX) {
+    const error = new Error(`${fieldName} must be ${LABEL_MAX} characters or fewer.`);
     error.code = 'APPROACH_LABEL_TOO_LONG';
     throw error;
   }
@@ -362,21 +373,6 @@ function createApproachId(label, approaches) {
   let suffix = 2;
   while (usedIds.has(`${base}-${suffix}`)) suffix += 1;
   return `${base}-${suffix}`;
-}
-
-function compareApproaches(candidate, current) {
-  if (candidate.score !== current.score) return candidate.score - current.score;
-  if (candidate.characters !== current.characters) {
-    return current.characters - candidate.characters;
-  }
-  return 0;
-}
-
-function getBestApproach(approaches) {
-  return approaches.reduce((best, approach) => {
-    if (!best || compareApproaches(approach, best) > 0) return approach;
-    return best;
-  }, null);
 }
 
 function toApproachSummary(approach) {
@@ -421,25 +417,6 @@ function buildLegacyApproach(solution, label, id) {
     tags: solution.tags,
     code: solution.code,
   };
-}
-
-function mirrorBestApproach(solution, approaches) {
-  const best = getBestApproach(approaches);
-  return {
-    ...solution,
-    score: best.score,
-    match: best.match,
-    characters: best.characters,
-    timestamp: best.timestamp,
-    tags: best.tags,
-    code: best.code,
-    bestApproachId: best.id,
-    approaches,
-  };
-}
-
-function normalizeApproachLabel(label) {
-  return label.trim().toLocaleLowerCase('en');
 }
 
 function assertUniqueApproachLabel(approaches, label, excludedId = '') {
@@ -636,6 +613,14 @@ function mergeDraftIntoRecords(existingRecords, draft, payload, filePath) {
       approachLabel,
       previousApproachLabel: '',
     };
+  }
+
+  // Last check before anything is written: the archive validates with the
+  // same rules, so a record that fails here would fail its build.
+  const savedRecord = records.find(solution => solution.id === draft.levelId);
+  const recordErrors = validateSolutionRecord(savedRecord);
+  if (recordErrors.length > 0) {
+    throw createPublishError('INVALID_RECORD', recordErrors.join('; '));
   }
 
   if (filePath.startsWith('data/daily/')) {
