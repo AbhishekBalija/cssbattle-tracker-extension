@@ -644,3 +644,11 @@ test('publish context reads existing approaches without writing to GitHub', asyn
   assert.equal(context.fetchCalls.length, 1);
   assert.equal(context.fetchCalls.some(([, init = {}]) => init.method === 'PUT'), false);
 });
+
+test('large files are base64 encoded without overflowing the call stack', () => {
+  const context = createBackgroundContext();
+  // battles.json grows with every publish; 500 KB is well past the old limit.
+  const big = JSON.stringify({ text: 'é—'.repeat(200000) });
+  const encoded = context.utf8ToBase64(big);
+  assert.equal(context.base64ToUtf8(encoded), big);
+});
