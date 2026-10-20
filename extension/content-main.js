@@ -177,34 +177,5 @@
       setEnabledPlugins(payload?.enabledPlugins || {});
       return;
     }
-
-    if (!window.__cssbattlePluginManager) {
-      window.postMessage({
-        source: PLUGIN_UI_SOURCE,
-        type: 'PLUGIN_RESULT',
-        payload: { success: false, error: 'Plugin manager not available' }
-      }, '*');
-      return;
-    }
-
-    if (type === 'RUN_PLUGIN') {
-      const result = window.__cssbattlePluginManager.runPlugin(payload?.id);
-      window.postMessage({
-        source: PLUGIN_UI_SOURCE,
-        type: 'PLUGIN_RESULT',
-        payload: result
-      }, '*');
-      return;
-    }
-
-    if (type === 'UNDO_PLUGIN') {
-      const result = window.__cssbattlePluginManager.undo();
-      window.postMessage({
-        source: PLUGIN_UI_SOURCE,
-        type: 'PLUGIN_RESULT',
-        payload: result
-      }, '*');
-      return;
-    }
   });
 })();

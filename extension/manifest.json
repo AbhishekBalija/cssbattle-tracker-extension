@@ -31,7 +31,7 @@
     },
     {
       "matches": ["https://cssbattle.dev/*"],
-      "js": ["publish-ui.js", "content.js"],
+      "js": ["publish-decision.js", "publish-ui.js", "content.js"],
       "run_at": "document_start"
     }
   ],

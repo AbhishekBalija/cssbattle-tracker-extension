@@ -31,6 +31,7 @@ jobs:
           node --check extension/content.js
           node --check extension/content-main.js
           node --check extension/plugin-manager.js
+          node --check extension/publish-decision.js
           node --check extension/publish-ui.js
           node --check extension/popup.js
           for file in extension/plugins/*.js; do
@@ -38,4 +39,4 @@ jobs:
           done
 
       - name: Test
-        run: node --test tests/background.test.js
+        run: node --test tests/background.test.js tests/publish-decision.test.js
