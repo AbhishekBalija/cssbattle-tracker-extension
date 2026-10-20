@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-10-20
+
+### Fixed
+
+- Fixed publishing failing with "Maximum call stack size exceeded" once a data file grew past about 64 KB
+
 ## [1.4.0] - 2026-09-11
 
 ### Added
