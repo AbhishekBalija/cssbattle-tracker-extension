@@ -110,26 +110,6 @@
       return true;
     }
 
-    if (message.type === 'RUN_PLUGIN') {
-      window.postMessage({
-        source: PLUGIN_UI_SOURCE,
-        type: 'RUN_PLUGIN',
-        payload: { id: message.payload?.id }
-      }, '*');
-      // No synchronous response; main world will emit PLUGIN_RESULT if needed.
-      sendResponse({ success: true });
-      return true;
-    }
-
-    if (message.type === 'UNDO_PLUGIN') {
-      window.postMessage({
-        source: PLUGIN_UI_SOURCE,
-        type: 'UNDO_PLUGIN'
-      }, '*');
-      sendResponse({ success: true });
-      return true;
-    }
-
     if (message.type === 'REQUEST_PAGE_DATA') {
       // Background script can request current page data
       const nextData = window.__NEXT_DATA__;

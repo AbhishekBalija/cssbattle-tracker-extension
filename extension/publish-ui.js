@@ -209,6 +209,12 @@
         font-size: 14px;
       }
 
+      textarea.cssbattle-publish-input {
+        min-height: 64px;
+        resize: vertical;
+        line-height: 1.5;
+      }
+
       .cssbattle-publish-input::placeholder {
         color: #687783;
       }
@@ -741,6 +747,32 @@
     renameButton.textContent = 'Rename approach';
     renameButton.hidden = true;
 
+    // Optional one-line note on the key trick, shown under the code on the archive.
+    const insightField = document.createElement('div');
+    insightField.className = 'cssbattle-publish-field';
+    insightField.hidden = true;
+    const insightLabel = document.createElement('label');
+    insightLabel.className = 'cssbattle-publish-label';
+    insightLabel.htmlFor = 'cssbattle-approach-insight';
+    insightLabel.textContent = 'Insight (optional)';
+    const insightInput = document.createElement('textarea');
+    insightInput.className = 'cssbattle-publish-input';
+    insightInput.id = 'cssbattle-approach-insight';
+    insightInput.maxLength = 200;
+    insightInput.rows = 2;
+    insightInput.placeholder = 'e.g. One box-shadow draws both circles';
+    const insightHelp = document.createElement('p');
+    insightHelp.className = 'cssbattle-publish-help';
+    insightHelp.id = 'cssbattle-insight-help';
+    insightInput.setAttribute('aria-describedby', insightHelp.id);
+    insightField.append(insightLabel, insightInput, insightHelp);
+
+    function updateInsightHelp() {
+      insightHelp.textContent = `The key trick or tradeoff, in your words. ${insightInput.value.length}/200`;
+    }
+    updateInsightHelp();
+    insightInput.addEventListener('input', updateInsightHelp);
+
     const legacy = makeField(
       'cssbattle-legacy-approach-name',
       'Saved approach name',
@@ -803,50 +835,54 @@
       return { label, input };
     }
 
-    function getSelectedApproach() {
-      return publishContext?.approaches?.find(item => item.id === selectedApproachId) || null;
+    function decisionApi() {
+      return window.__cssbattlePublishDecision || null;
     }
 
-    function compareWithDraft(saved) {
-      if (!saved) return 0;
-      if (currentDraft.score !== saved.score) return currentDraft.score - saved.score;
-      if (currentDraft.charCount !== saved.characters) {
-        return saved.characters - currentDraft.charCount;
-      }
-      return 0;
+    function currentSelection() {
+      return {
+        mode,
+        selectedApproachId,
+        renameEnabled,
+        legacyMode,
+        newApproachName,
+        forcedRegression,
+        approachInputValue: approach.input.value,
+        approachInputDataset: approach.input.dataset.approachId || '',
+        legacyInputValue: legacy.input.value,
+        insightValue: insightInput.value,
+        insightDataset: insightInput.dataset.approachId || ''
+      };
     }
 
-    function renderComparison(saved) {
-      if (!saved) {
-        comparison.hidden = true;
-        warning.hidden = true;
-        return false;
-      }
-      comparison.hidden = false;
-      savedComparison.innerHTML = `<strong>Saved</strong>${saved.score} score · ${saved.characters} chars`;
-      draftComparison.innerHTML = `<strong>Draft</strong>${currentDraft.score} score · ${currentDraft.charCount} chars`;
-      const isWorse = compareWithDraft(saved) < 0 || forcedRegression !== null;
-      warning.hidden = !isWorse;
-      if (isWorse) {
-        const details = forcedRegression || {
-          existing: { score: saved.score, characters: saved.characters },
-          draft: { score: currentDraft.score, characters: currentDraft.charCount }
-        };
-        warning.textContent = `This replaces ${details.existing.score} score · ${details.existing.characters} chars with ${details.draft.score} score · ${details.draft.characters} chars.`;
-      }
-      return isWorse;
-    }
-
-    function renderNamedChoices() {
+    function renderNamedChoices(choices) {
       choiceList.replaceChildren();
-      for (const item of publishContext.approaches) {
+      for (const item of choices) {
+        if (item.id === 'create') {
+          const newChoice = createChoice({
+            name: item.label,
+            value: 'create',
+            note: item.note,
+            disabled: item.disabled
+          });
+          newChoice.input.checked = item.checked;
+          newChoice.input.addEventListener('change', () => {
+            if (!newChoice.input.checked) return;
+            mode = 'create';
+            renameEnabled = false;
+            forcedRegression = null;
+            renderState();
+          });
+          choiceList.appendChild(newChoice.label);
+          continue;
+        }
         const choice = createChoice({
           name: item.label,
           value: `update:${item.id}`,
-          statsText: `${item.score} · ${item.characters} chars`,
-          best: item.id === publishContext.bestApproachId
+          statsText: item.statsText,
+          best: item.best
         });
-        choice.input.checked = mode === 'update' && selectedApproachId === item.id;
+        choice.input.checked = item.checked;
         choice.input.addEventListener('change', () => {
           if (!choice.input.checked) return;
           if (mode === 'create') newApproachName = approach.input.value;
@@ -858,27 +894,9 @@
         });
         choiceList.appendChild(choice.label);
       }
-
-      const newChoice = createChoice({
-        name: 'New approach',
-        value: 'create',
-        note: publishContext.canCreate
-          ? 'Keep the saved approaches and add this draft.'
-          : `Maximum of ${publishContext.maxApproaches} approaches reached.`,
-        disabled: !publishContext.canCreate
-      });
-      newChoice.input.checked = mode === 'create';
-      newChoice.input.addEventListener('change', () => {
-        if (!newChoice.input.checked) return;
-        mode = 'create';
-        renameEnabled = false;
-        forcedRegression = null;
-        renderState();
-      });
-      choiceList.appendChild(newChoice.label);
     }
 
-    function renderLegacyChoices() {
+    function renderLegacyChoices(replaceChecked, preserveChecked) {
       legacyChoices.replaceChildren();
       const replaceChoice = createChoice({
         name: 'Update saved solution',
@@ -886,7 +904,7 @@
         note: 'Treat this draft as the optimized version of the saved approach.'
       });
       replaceChoice.input.name = 'cssbattle-legacy-choice';
-      replaceChoice.input.checked = legacyMode === 'replace';
+      replaceChoice.input.checked = replaceChecked;
       replaceChoice.input.addEventListener('change', () => {
         if (!replaceChoice.input.checked) return;
         legacyMode = 'replace';
@@ -899,7 +917,7 @@
         note: 'Name the saved solution and keep both versions.'
       });
       preserveChoice.input.name = 'cssbattle-legacy-choice';
-      preserveChoice.input.checked = legacyMode === 'preserve';
+      preserveChoice.input.checked = preserveChecked;
       preserveChoice.input.addEventListener('change', () => {
         if (!preserveChoice.input.checked) return;
         legacyMode = 'preserve';
@@ -911,66 +929,52 @@
 
     function renderState() {
       if (!publishContext) return;
+      const api = decisionApi();
+      if (!api) {
+        setModalStatus(status, 'Could not load publish logic.', true);
+        return;
+      }
       setModalStatus(status, '');
       retryButton.hidden = true;
-      choiceGroup.hidden = publishContext.legacy || publishContext.approaches.length === 0;
-      legacyGroup.hidden = !publishContext.legacy;
-      legacy.field.hidden = true;
-      renameButton.hidden = true;
-      approach.field.hidden = false;
+      const { view } = api.decide(currentDraft, publishContext, currentSelection());
+      choiceGroup.hidden = view.choiceGroupHidden;
+      legacyGroup.hidden = view.legacyGroupHidden;
+      legacy.field.hidden = view.legacyFieldHidden;
+      renameButton.hidden = view.renameButtonHidden;
+      renameButton.textContent = view.renameButtonLabel;
+      approach.field.hidden = view.approachFieldHidden;
+      insightField.hidden = false;
+      if (view.insightDatasetId !== null) insightInput.dataset.approachId = view.insightDatasetId;
+      if (view.insightPrefill !== null) {
+        insightInput.value = view.insightPrefill;
+        updateInsightHelp();
+      }
+      approachLabelElement.textContent = view.approachFieldLabel;
+      approachHelp.textContent = view.approachFieldHelp;
 
-      if (publishContext.legacy) {
-        renderLegacyChoices();
-        const isPreserving = legacyMode === 'preserve';
-        mode = isPreserving ? 'create' : 'update';
-        approachLabelElement.textContent = isPreserving ? 'New approach name' : 'Approach name';
-        approachHelp.textContent = isPreserving
-          ? 'This name describes the new draft.'
-          : 'Name the saved approach while replacing it with this draft.';
-        legacy.field.hidden = !isPreserving;
-        const isWorse = isPreserving ? false : renderComparison(publishContext.legacySolution);
-        if (isPreserving) {
-          comparison.hidden = false;
-          savedComparison.innerHTML = `<strong>Saved</strong>${publishContext.legacySolution.score} score · ${publishContext.legacySolution.characters} chars`;
-          draftComparison.innerHTML = `<strong>New draft</strong>${currentDraft.score} score · ${currentDraft.charCount} chars`;
-          warning.hidden = true;
-        }
-        confirmButton.textContent = isWorse ? 'Update anyway' : isPreserving ? 'Create approach' : 'Update approach';
-      } else if (publishContext.approaches.length > 0) {
-        renderNamedChoices();
-        if (mode === 'create') {
-          comparison.hidden = true;
-          warning.hidden = true;
-          renameButton.hidden = true;
-          approachLabelElement.textContent = 'Approach name';
-          approachHelp.textContent = 'Give this new approach a clear technique-based name.';
-          approach.input.value = newApproachName;
-          confirmButton.textContent = 'Create approach';
-        } else {
-          const selected = getSelectedApproach();
-          const isWorse = renderComparison(selected);
-          renameButton.hidden = false;
-          renameButton.textContent = renameEnabled ? 'Keep current name' : 'Rename approach';
-          approach.field.hidden = !renameEnabled;
-          approachLabelElement.textContent = 'New approach name';
-          approachHelp.textContent = 'The approach ID stays the same.';
-          if (renameEnabled && approach.input.dataset.approachId !== selectedApproachId) {
-            approach.input.value = selected?.label || '';
-            approach.input.dataset.approachId = selectedApproachId;
-          }
-          confirmButton.textContent = isWorse
-            ? 'Update anyway'
-            : renameEnabled && approach.input.value.trim() !== selected?.label
-              ? 'Update and rename'
-              : 'Update approach';
-        }
+      if (view.kind === 'legacy') {
+        renderLegacyChoices(view.legacyReplaceChecked, view.legacyPreserveChecked);
+      } else if (view.namedChoices) {
+        renderNamedChoices(view.namedChoices);
+      }
+
+      if (view.comparison) {
+        comparison.hidden = false;
+        savedComparison.innerHTML = view.comparison.savedHtml;
+        draftComparison.innerHTML = view.comparison.draftHtml;
       } else {
         comparison.hidden = true;
-        warning.hidden = true;
-        approachLabelElement.textContent = 'Approach name';
-        approachHelp.textContent = 'Give this first approach a clear technique-based name.';
-        confirmButton.textContent = 'Create approach';
       }
+      if (view.warning) {
+        warning.hidden = false;
+        warning.textContent = view.warning;
+      } else {
+        warning.hidden = true;
+      }
+      if (view.clearApproachDataset) approach.input.dataset.approachId = '';
+      if (view.approachDatasetId !== null) approach.input.dataset.approachId = view.approachDatasetId;
+      if (view.approachInputValue !== null) approach.input.value = view.approachInputValue;
+      confirmButton.textContent = view.confirmLabel;
 
       confirmButton.disabled = false;
     }
@@ -985,39 +989,16 @@
 
     approach.input.addEventListener('input', () => {
       if (mode === 'create' && !publishContext?.legacy) newApproachName = approach.input.value;
-      if (mode === 'update' && renameEnabled && !warning.hidden) {
-        confirmButton.textContent = 'Update anyway';
-      } else if (mode === 'update' && renameEnabled) {
-        const selected = getSelectedApproach();
-        confirmButton.textContent = approach.input.value.trim() !== selected?.label
-          ? 'Update and rename'
-          : 'Update approach';
-      }
+      if (!publishContext) return;
+      const api = decisionApi();
+      if (!api) return;
+      confirmButton.textContent = api.decide(currentDraft, publishContext, currentSelection()).view.confirmLabel;
     });
 
     function getPublishPayload() {
-      if (publishContext.legacy) {
-        return {
-          mode: legacyMode === 'preserve' ? 'create' : 'update',
-          legacyMode,
-          approachLabel: approach.input.value.trim(),
-          legacyApproachLabel: legacy.input.value.trim(),
-          confirmRegression: !warning.hidden,
-        };
-      }
-      if (mode === 'update') {
-        const selected = getSelectedApproach();
-        return {
-          mode: 'update',
-          approachId: selectedApproachId,
-          approachLabel: renameEnabled ? approach.input.value.trim() : selected?.label || '',
-          confirmRegression: !warning.hidden,
-        };
-      }
-      return {
-        mode: 'create',
-        approachLabel: approach.input.value.trim(),
-      };
+      const api = decisionApi();
+      if (!api) return { mode: 'create', approachLabel: '' };
+      return api.decide(currentDraft, publishContext, currentSelection()).payload;
     }
 
     async function loadPublishContext() {
@@ -1036,7 +1017,12 @@
         currentDraft = result.draft || currentDraft;
         target.textContent = currentDraft.targetName || `Target ${currentDraft.levelId}`;
         stats.textContent = `${currentDraft.score} score · ${currentDraft.charCount} chars`;
-        if (publishContext.approaches.length > 0) {
+        const api = decisionApi();
+        if (api) {
+          const init = api.initialSelection(publishContext);
+          mode = init.mode;
+          selectedApproachId = init.selectedApproachId;
+        } else if (publishContext.approaches.length > 0) {
           mode = 'update';
           selectedApproachId = publishContext.approaches[0].id;
         } else {
@@ -1108,6 +1094,7 @@
       approach.field,
       renameButton,
       legacy.field,
+      insightField,
       suggestions,
       status,
       retryButton,
